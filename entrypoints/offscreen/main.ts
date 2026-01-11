@@ -8,21 +8,7 @@ const languageMap: { [key: string]: string } = {
     'zh-Hans': 'zh',
     'zh-Hant': 'zh-TW',
     'en': 'en',
-    'ja': 'ja',
-    'ko': 'ko',
-    'fr': 'fr',
-    'de': 'de',
-    'es': 'es',
-    'ru': 'ru',
-    'it': 'it',
-    'pt': 'pt',
-    'ar': 'ar',
-    'hi': 'hi',
-    'th': 'th',
-    'vi': 'vi',
-    'nl': 'nl',
-    'pl': 'pl',
-    'tr': 'tr'
+    'ja': 'ja'
 };
 
 // 检查是否支持 Chrome Translation API

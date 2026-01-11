@@ -432,26 +432,6 @@ const detectLanguage = (text: string): string => {
   const hasJapanese = /[\u3040-\u30ff]/.test(text);
   if (hasJapanese) return 'ja-JP';
   
-  // 检测是否包含韩文字符
-  const hasKorean = /[\uAC00-\uD7A3]/.test(text);
-  if (hasKorean) return 'ko-KR';
-  
-  // 检测是否包含俄文字符
-  const hasRussian = /[\u0400-\u04FF]/.test(text);
-  if (hasRussian) return 'ru-RU';
-  
-  // 检测是否包含德文特殊字符
-  const hasGerman = /[äöüßÄÖÜ]/.test(text);
-  if (hasGerman) return 'de-DE';
-  
-  // 检测是否包含法文特殊字符
-  const hasFrench = /[àâçéèêëîïôùûüÿæœÀÂÇÉÈÊËÎÏÔÙÛÜŸÆŒ]/.test(text);
-  if (hasFrench) return 'fr-FR';
-  
-  // 检测是否包含西班牙文特殊字符
-  const hasSpanish = /[áéíóúüñÁÉÍÓÚÜÑ]/.test(text);
-  if (hasSpanish) return 'es-ES';
-  
   // 默认返回英语
   return 'en-US';
 };
