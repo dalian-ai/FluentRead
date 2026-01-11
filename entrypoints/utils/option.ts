@@ -63,13 +63,13 @@ export const servicesType = {
 
 export const customModelString = "自定义模型";
 export const models = new Map<string, Array<string>>([
-    [services.custom, ["gpt-5-nano", "gpt-5-mini", "gpt5", "gpt-4o", "gemma:7b", "llama2:7b", "mistral:7b", customModelString]],
-    [services.zhipu, ["glm-4.5", "GLM-4-Flash", "glm-4-plus", "glm-4", "glm-4v", customModelString]],
+    [services.custom, ["gpt-5-nano", "gpt-5-mini", customModelString]],
+    [services.zhipu, ["glm-4.5", "GLM-4-Flash", "glm-4-plus", "glm-4", customModelString]],
     [services.deepseek, ["deepseek-chat", "deepseek-reasoner", customModelString]],
     [services.siliconCloud, ["Qwen/Qwen3-Coder-30B-A3B-Instruct", "Qwen/Qwen3-8B", "THUDM/GLM-Z1-9B-0414", "THUDM/GLM-4-9B-0414",
         "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
-        "Qwen/Qwen2.5-7B-Instruct", "internlm/internlm2_5-7b-chat", "THUDM/glm-4-9b-chat", customModelString]],
-    [services.openrouter, ["meta-llama/llama-3.1-8b-instruct", "google/gemini-2.0-flash-exp", "qwen/qwen-2-7b-instruct", "huggingfaceh4/zephyr-7b-beta", customModelString]]
+         customModelString]],
+    [services.openrouter, ["google/gemini-2.0-flash-exp", "qwen/qwen-2-7b-instruct", "huggingfaceh4/zephyr-7b-beta", customModelString]]
 ]);
 
 export const options = {
@@ -224,7 +224,7 @@ export const defaultOption = {
     display: 1,
     hotkey: "Control",
     service: services.custom,
-    custom: "http://localhost:11434/v1/chat/completions",
+    custom: "https://text-to-image-cf.dal.workers.dev/v1/chat/completions",
     system_role:
         "You are a professional, authentic machine translation engine.",
     user_role: `Translate the following text into {{to}}, If translation is unnecessary (e.g. proper nouns, codes, etc.), return the original text. NO explanations. NO notes:

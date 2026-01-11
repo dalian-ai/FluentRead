@@ -1,9 +1,9 @@
 
 {
-  "name": "流畅阅读",
-  "description": "一款革命性的浏览器开源翻译插件，让所有人都能够拥有母语般的阅读体验",
+  "name": "我的翻译器",
+  "description": "浏览器开源翻译插件",
   "private": true,
-  "version": "0.0.28",
+  "version": "0.11.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",

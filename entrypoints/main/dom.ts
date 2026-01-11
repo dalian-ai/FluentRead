@@ -2,6 +2,34 @@ import { getMainDomain, selectCompatFn } from "@/entrypoints/main/compat";
 import { html } from 'js-beautify';
 import { handleBtnTranslation } from "@/entrypoints/main/trans";
 
+// 正则表达式常量 - 避免重复创建提升性能
+const REGEX_PATTERNS = {
+    // 社交媒体用户名
+    twitterUsername: /^@\w+/,
+    redditUsername: /^u\/\w+/,
+    socialId: /^id@https?:\/\/(x\.com|twitter\.com)\/[\w-]+\/status\/\d+/,
+    // 数字格式
+    pureInteger: /^-?\d+$/,
+    commaNumber: /^-?(\d{1,3}(,\d{3})+)$/,
+    rangeNumber: /^\d+\s*[-~]\s*\d+$/,
+    decimal: /^-?\d+\.\d+$/,
+    percentage: /^-?\d+(\.\d+)?%$/,
+    scientific: /^-?\d+(\.\d+)?(e[-+]\d+)?$/i,
+    currency: /^[$€¥£₹₽₩]?\s*-?\d+(,\d{3})*(\.\d+)?$/,
+    // 日期时间
+    dateFormat: /^(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4}|\d{1,2}[-/]\d{1,2}[-/]\d{1,2})$/,
+    timeFormat: /^\d{1,2}:\d{2}(:\d{2})?$/,
+    version: /^\d+(\.\d+){1,3}(-[a-zA-Z0-9]+)?$/,
+    // ID格式
+    numberId: /^ID[:：]?\s*\d+$/,
+    numberNo: /^No[\.:]?\s*\d+$/i,
+    hashNumber: /^#[\d]+$/,
+    // 用户标识
+    simpleUsername: /^[A-Za-z0-9_]{1,15}$/,
+    followText: /关注.*\w+|Follow.*\w+/,
+    whitespaceCheck: /\s+/
+};
+
 // 直接翻译的标签集合（块级元素）
 const directSet = new Set([
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',  // 标题
@@ -187,23 +215,23 @@ function isMainlyNumericContent(node: any): boolean {
     const text = node.textContent.trim();
     if (!text) return false;
     
-    // 如果内容很短，且是纯数字格式，则跳过
-    // 对于短文本，直接判断整体是否为数字格式
+    // 快速检查：短文本直接判断
     if (text.length < 30 && isNumericContent(text)) return true;
-    
-    // 检查是否为用户名或用户ID格式
     if (isUserIdentifier(text)) return true;
     
-    // 对于较长的内容，检查是否主要为数字格式
-    // 处理节点可能含有多个文本子节点的情况
-    // 这有助于更精确地识别混合内容中的数字部分
-    const textNodes = [];
-    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null);
-    let textNode;
-    while (textNode = walker.nextNode()) {
-        const nodeText = textNode.textContent?.trim() || '';
-        if (nodeText) {
-            textNodes.push(nodeText);
+    // 优化：只在必要时才创建 TreeWalker
+    // 如果节点只有一个子节点，无需使用 TreeWalker
+    if (node.childNodes.length <= 1) {
+        return isNumericContent(text);
+    }
+    
+    // 对于多个子节点的情况，使用更高效的方法
+    const textNodes: string[] = [];
+    for (let i = 0; i < node.childNodes.length; i++) {
+        const child = node.childNodes[i];
+        if (child.nodeType === Node.TEXT_NODE) {
+            const nodeText = child.textContent?.trim();
+            if (nodeText) textNodes.push(nodeText);
         }
     }
     
@@ -211,10 +239,8 @@ function isMainlyNumericContent(node: any): boolean {
     if (textNodes.length === 1 && isNumericContent(textNodes[0])) return true;
     
     // 如果所有文本节点都是数字，则跳过翻译
-    // 这可能是表格中的数字列或者纯数字列表等
     if (textNodes.length > 0 && textNodes.every(t => isNumericContent(t))) return true;
     
-    // 否则不跳过，允许翻译
     return false;
 }
 
@@ -226,18 +252,12 @@ function isUserIdentifier(text: string): boolean {
     
     const trimmedText = text.trim();
     
-    // 检查是否为社交媒体用户名格式
-    if (/^@\w+/.test(trimmedText)) return true;  // Twitter格式：@username
-    if (/^u\/\w+/.test(trimmedText)) return true; // Reddit格式：u/username
-    
-    // 检查是否为x.com或twitter.com的ID格式
-    if (/^id@https?:\/\/(x\.com|twitter\.com)\/[\w-]+\/status\/\d+/.test(trimmedText)) return true;
-    
-    // 检查是否包含"关注"相关内容
-    if (/关注.*\w+/.test(trimmedText) || /Follow.*\w+/.test(trimmedText)) return true;
-    
-    // 检查是否为纯粹的用户名格式（字母、数字、下划线组合）
-    if (/^[A-Za-z0-9_]{1,15}$/.test(trimmedText)) return true;
+    // 使用预定义的正则常量提升性能
+    if (REGEX_PATTERNS.twitterUsername.test(trimmedText)) return true;
+    if (REGEX_PATTERNS.redditUsername.test(trimmedText)) return true;
+    if (REGEX_PATTERNS.socialId.test(trimmedText)) return true;
+    if (REGEX_PATTERNS.followText.test(trimmedText)) return true;
+    if (REGEX_PATTERNS.simpleUsername.test(trimmedText)) return true;
     
     // 特殊格式：带点击动作的用户名
     if (/点击.*\w+/.test(trimmedText) && trimmedText.length < 50) return true;
@@ -268,56 +288,32 @@ function isUserIdentifier(text: string): boolean {
 function isNumericContent(text: string): boolean {
     if (!text || typeof text !== 'string') return false;
     
-    // 去除空白字符
     const trimmedText = text.trim();
     if (!trimmedText) return false;
 
     // 首先检查是否为用户标识符
     if (isUserIdentifier(trimmedText)) return true;
     
-    // 如果包含多个单词，则不视为纯数字内容
-    if (/\s+/.test(trimmedText.replace(/[\d,.\-%+]/g, ''))) return false;
+    // 如果包含多个单词，则不视为纯数字内容（使用正则常量）
+    if (REGEX_PATTERNS.whitespaceCheck.test(trimmedText.replace(/[\d,.\-%+]/g, ''))) return false;
     
-    // 检查是否为纯数字
-    if (/^-?\d+$/.test(trimmedText)) return true;
+    // 使用预定义的正则常量进行检查，提升性能
+    if (REGEX_PATTERNS.pureInteger.test(trimmedText)) return true;
+    if (REGEX_PATTERNS.commaNumber.test(trimmedText)) return true;
+    if (REGEX_PATTERNS.rangeNumber.test(trimmedText)) return true;
+    if (REGEX_PATTERNS.decimal.test(trimmedText)) return true;
+    if (REGEX_PATTERNS.percentage.test(trimmedText)) return true;
+    if (REGEX_PATTERNS.scientific.test(trimmedText)) return true;
+    if (REGEX_PATTERNS.currency.test(trimmedText)) return true;
     
-    // 检查是否为标准数字格式：带逗号的数字 (例如: 1,234,567)
-    if (/^-?(\d{1,3}(,\d{3})+)$/.test(trimmedText)) return true;
-    
-    // 检查是否为范围数字 (例如: 1-123)
-    if (/^\d+\s*[-~]\s*\d+$/.test(trimmedText)) return true;
-    
-    // 检查是否为小数
-    if (/^-?\d+\.\d+$/.test(trimmedText)) return true;
-    
-    // 检查是否为百分比
-    if (/^-?\d+(\.\d+)?%$/.test(trimmedText)) return true;
-    
-    // 检查是否为科学计数法 (例如: 1.23e+4)
-    if (/^-?\d+(\.\d+)?(e[-+]\d+)?$/i.test(trimmedText)) return true;
-    
-    // 检查是否为带货币符号的金额 (例如: $123.45, €123, ¥123)
-    if (/^[$€¥£₹₽₩]?\s*-?\d+(,\d{3})*(\.\d+)?$/.test(trimmedText)) return true;
-    
-    // 检查是否为日期时间格式 (仅考虑常见的数字日期格式)
-    // 匹配 YYYY-MM-DD, YYYY/MM/DD, DD-MM-YYYY, DD/MM/YYYY, MM-DD-YYYY, MM/DD/YYYY
-    if (/^(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4}|\d{1,2}[-/]\d{1,2}[-/]\d{1,2})$/.test(trimmedText)) return true;
-    
-    // 匹配时间格式 HH:MM:SS, HH:MM
-    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(trimmedText)) return true;
-    
-    // 匹配版本号 (例如: 1.0.0, 2.3.5-beta)
-    if (/^\d+(\.\d+){1,3}(-[a-zA-Z0-9]+)?$/.test(trimmedText)) return true;
-    
-    // 匹配社交媒体的ID格式
-    if (/^id@https?:\/\/(x\.com|twitter\.com)\/[\w-]+\/status\/\d+/.test(trimmedText)) return true;
-    
-    // 匹配常见的数字ID格式
-    if (/^ID[:：]?\s*\d+$/.test(trimmedText)) return true;
-    if (/^No[\.:]?\s*\d+$/i.test(trimmedText)) return true;
-
-    // #数字 格式的
-    if (/^#[\d]+$/.test(trimmedText)) return true;
+    // 使用预定义的正则常量进行日期时间和ID检查
+    if (REGEX_PATTERNS.dateFormat.test(trimmedText)) return true;
+    if (REGEX_PATTERNS.timeFormat.test(trimmedText)) return true;
+    if (REGEX_PATTERNS.version.test(trimmedText)) return true;
+    if (REGEX_PATTERNS.socialId.test(trimmedText)) return true;
+    if (REGEX_PATTERNS.numberId.test(trimmedText)) return true;
+    if (REGEX_PATTERNS.numberNo.test(trimmedText)) return true;
+    if (REGEX_PATTERNS.hashNumber.test(trimmedText)) return true;
 
     return false;
 }
