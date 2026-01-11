@@ -81,7 +81,7 @@ export class Config {
         this.customHotkey = ''; // 自定义鼠标悬浮快捷键为空
         this.disableSelectionTranslator = false; // 默认不禁用划词翻译
         this.selectionTranslatorMode = 'bilingual'; // 默认双语显示模式
-        this.maxConcurrentTranslations = 6; // 默认最大并发数为6
+        this.maxConcurrentTranslations = 50; // 默认最大并发数为30
         this.animations = true; // 默认启用动画
         this.translationStatus = true; // 默认启用翻译进度面板
         this.inputBoxTranslationTrigger = 'disabled'; // 默认关闭输入框翻译
