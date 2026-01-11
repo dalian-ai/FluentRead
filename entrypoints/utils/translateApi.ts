@@ -48,6 +48,14 @@ export async function translateText(origin: string, context: string = document.t
     }
   }
 
+  // 清理文本：去除首尾空白，将连续空白替换为单个空格
+  const cleanedOrigin = origin.trim().replace(/\s+/g, ' ');
+  
+  // 如果清理后文本为空，直接返回原文
+  if (!cleanedOrigin) {
+    return origin;
+  }
+
   // 增加翻译计数
   config.count++;
   // 保存配置以确保计数持久化
@@ -56,7 +64,7 @@ export async function translateText(origin: string, context: string = document.t
   // 如果启用批量翻译，使用批处理管道
   if (useBatch) {
     return enqueueTranslation(async () => {
-      return batchTranslate(origin, context);
+      return batchTranslate(cleanedOrigin, context);
     });
   }
 
@@ -67,7 +75,7 @@ export async function translateText(origin: string, context: string = document.t
       try {
         // 发送翻译请求给background脚本处理
         const result = await Promise.race([
-          browser.runtime.sendMessage({ context, origin }),
+          browser.runtime.sendMessage({ context, origin: cleanedOrigin }),
           new Promise<never>((_, reject) => 
             setTimeout(() => reject(new Error('翻译请求超时')), timeout)
           )
@@ -80,7 +88,7 @@ export async function translateText(origin: string, context: string = document.t
 
         // 缓存翻译结果
         if (useCache) {
-          cache.localSet(origin, result);
+          cache.localSet(cleanedOrigin, result);
         }
 
         return result;

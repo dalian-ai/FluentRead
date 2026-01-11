@@ -14,15 +14,10 @@ export function commonMsgTemplate(origin: string, isBatch: boolean = false) {
     let user: string;
     
     if (isBatch) {
-        // 批量翻译模式：提示词需要告诉AI保持序号格式
-        user = `请将以下多段文本翻译成${config.to}。每段文本前有序号标记 [数字]，请在翻译结果中保持相同的序号格式。
+        // 批量翻译模式：使用更简洁的提示词
+        user = `翻译成${config.to}，保持序号格式[1][2][3]，段间空行分隔，仅返回译文：
 
-${origin}
-
-要求：
-1. 保持每段的序号格式 [1], [2], [3]...
-2. 每段翻译结果之间用两个换行符分隔
-3. 只返回翻译结果，不要添加其他说明`;
+${origin}`;
     } else {
         // 单独翻译模式：使用原有的用户提示词
         user = (config.user_role[config.service] || defaultOption.user_role)
@@ -51,15 +46,10 @@ export function deepseekMsgTemplate(origin: string, isBatch: boolean = false) {
     let user: string;
     
     if (isBatch) {
-        // 批量翻译模式
-        user = `请将以下多段文本翻译成${config.to}。每段文本前有序号标记 [数字]，请在翻译结果中保持相同的序号格式。
+        // 批量翻译模式：使用更简洁的提示词
+        user = `翻译成${config.to}，保持序号格式[1][2][3]，段间空行分隔，仅返回译文：
 
-${origin}
-
-要求：
-1. 保持每段的序号格式 [1], [2], [3]...
-2. 每段翻译结果之间用两个换行符分隔
-3. 只返回翻译结果，不要添加其他说明`;
+${origin}`;
     } else {
         // 单独翻译模式
         user = (config.user_role[config.service] || defaultOption.user_role)

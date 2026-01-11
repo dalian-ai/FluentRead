@@ -129,7 +129,67 @@ async function processBatch() {
  * 批量翻译一组任务
  */
 async function translateBatch(tasks: BatchTask[]) {
-  // 构建批量翻译的提示词
+  // 去重优化：找出所有唯一的文本
+  const uniqueTexts = new Map<string, number[]>(); // text -> [indices]
+  tasks.forEach((task, index) => {
+    const text = task.origin;
+    if (!uniqueTexts.has(text)) {
+      uniqueTexts.set(text, []);
+    }
+    uniqueTexts.get(text)!.push(index);
+  });
+  
+  // 如果所有文本都是唯一的，使用原逻辑
+  if (uniqueTexts.size === tasks.length) {
+    return translateBatchNormal(tasks);
+  }
+  
+  // 有重复文本，只翻译唯一的
+  const uniqueTasksList = Array.from(uniqueTexts.entries()).map(([text, indices], idx) => ({
+    origin: text,
+    context: tasks[indices[0]].context,
+    resolve: (result: string) => {}, // 临时占位
+    reject: (error: any) => {},
+    timestamp: Date.now(),
+    originalIndices: indices, // 保存原始索引
+  }));
+  
+  // 构建批量翻译的提示词（文本已在 translateApi 中清理过）
+  const origins = uniqueTasksList.map((task, index) => `[${index + 1}] ${task.origin}`).join('\n\n');
+  
+  // 发送批量翻译请求
+  const result = await browser.runtime.sendMessage({
+    type: 'batch_translate',
+    context: uniqueTasksList[0].context,
+    origin: origins,
+    count: uniqueTasksList.length
+  }) as string;
+  
+  // 解析批量翻译结果
+  const results = parseBatchResult(result, uniqueTasksList.length);
+  
+  // 分发结果到所有相关任务（包括重复的）
+  for (let i = 0; i < uniqueTasksList.length; i++) {
+    const translatedText = results[i] || uniqueTasksList[i].origin;
+    const originalIndices = (uniqueTasksList[i] as any).originalIndices;
+    
+    // 缓存一次
+    if (config.useCache) {
+      cache.localSet(uniqueTasksList[i].origin, translatedText);
+    }
+    
+    // 分发到所有使用该文本的任务
+    for (const idx of originalIndices) {
+      tasks[idx].resolve(translatedText);
+    }
+  }
+}
+
+/**
+ * 正常批量翻译（无重复文本）
+ */
+async function translateBatchNormal(tasks: BatchTask[]) {
+  // 构建批量翻译的提示词（文本已在 translateApi 中清理过）
   const origins = tasks.map((task, index) => `[${index + 1}] ${task.origin}`).join('\n\n');
   
   // 发送批量翻译请求

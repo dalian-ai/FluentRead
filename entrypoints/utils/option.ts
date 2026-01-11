@@ -231,8 +231,8 @@ export const defaultOption = {
     service: services.custom,
     custom: "https://text-to-image-cf.dal.workers.dev/v1/chat/completions",
     system_role:
-        "You are a professional, authentic machine translation engine.",
-    user_role: `Translate the following text into {{to}}, If translation is unnecessary (e.g. proper nouns, codes, etc.), return the original text. NO explanations. NO notes:
+        "Professional translation engine.",
+    user_role: `Translate to {{to}}. Keep proper nouns/codes unchanged. No explanations:
 
 {{origin}}`,
     count: 0,
