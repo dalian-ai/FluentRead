@@ -205,43 +205,6 @@
       </el-col>
     </el-row>
 
-    <!-- Azure OpenAI 端点配置 -->
-    <el-row v-show="compute.showAzureOpenaiEndpoint" class="margin-bottom margin-left-2em">
-      <el-col :span="12" class="lightblue rounded-corner">
-        <el-tooltip class="box-item" effect="dark"
-          content="Azure OpenAI 服务端点地址，必须包含完整的部署信息。格式：https://your-resource-name.openai.azure.com/openai/deployments/your-deployment-name/chat/completions?api-version=2024-02-15-preview" placement="top-start"
-          :show-after="500">
-          <span class="popup-text popup-vertical-left">Azure 端点<el-icon class="icon-margin">
-              <ChatDotRound />
-            </el-icon></span>
-        </el-tooltip>
-      </el-col>
-      <el-col :span="12">
-        <el-input
-          v-model="config.azureOpenaiEndpoint"
-          placeholder="https://your-resource.openai.azure.com/openai/deployments/your-model/chat/completions?api-version=2024-02-15-preview"
-          :class="{ 'input-error': config.azureOpenaiEndpoint && !isValidAzureEndpoint(config.azureOpenaiEndpoint) }"
-        />
-        <div v-if="config.azureOpenaiEndpoint && !isValidAzureEndpoint(config.azureOpenaiEndpoint)" class="error-text">
-          端点地址格式不正确，请确保包含 openai.azure.com 域名和 /chat/completions 路径
-        </div>
-      </el-col>
-    </el-row>
-
-    <!-- DeepLX URL 配置-->
-    <el-row v-show="compute.showDeepLX" class="margin-bottom margin-left-2em">
-      <el-col :span="12" class="lightblue rounded-corner">
-        <el-tooltip class="box-item" effect="dark"
-          content="DeepLX API 服务地址，默认为本地地址。如果使用远程 DeepLX 服务，请修改为对应的服务地址" placement="top-start"
-          :show-after="500">
-          <span class="popup-text popup-vertical-left">服务地址</span>
-        </el-tooltip>
-      </el-col>
-      <el-col :span="12">
-        <el-input v-model="config.deeplx" placeholder="http://localhost:1188/translate" />
-      </el-col>
-    </el-row>
-
     <!-- 使用AkSk -->
     <el-row v-show="compute.showAkSk" class="margin-bottom margin-left-2em">
       <el-col :span="12" class="lightblue rounded-corner">
@@ -267,62 +230,6 @@
       </el-col>
       <el-col :span="12">
         <el-input v-model="config.sk" type="password" placeholder="请输入Secret Key" />
-      </el-col>
-    </el-row>
-
-    <!-- 有道翻译配置 -->
-    <el-row v-show="compute.showYoudao" class="margin-bottom margin-left-2em">
-      <el-col :span="12" class="lightblue rounded-corner">
-        <el-tooltip class="box-item" effect="dark" content="有道智云翻译API应用ID，用于访问有道翻译服务。可在有道智云控制台获取" placement="top-start"
-          :show-after="500">
-          <span class="popup-text popup-vertical-left">App Key<el-icon class="icon-margin">
-              <ChatDotRound />
-            </el-icon></span>
-        </el-tooltip>
-      </el-col>
-      <el-col :span="12">
-        <el-input v-model="config.youdaoAppKey" placeholder="有道 AppKey" />
-      </el-col>
-    </el-row>
-    <el-row v-show="compute.showYoudao" class="margin-bottom margin-left-2em">
-      <el-col :span="12" class="lightblue rounded-corner">
-        <el-tooltip class="box-item" effect="dark" content="有道智云翻译API应用密钥，用于访问有道翻译服务。可在有道智云控制台获取" placement="top-start"
-          :show-after="500">
-          <span class="popup-text popup-vertical-left">App Secret<el-icon class="icon-margin">
-              <ChatDotRound />
-            </el-icon></span>
-        </el-tooltip>
-      </el-col>
-      <el-col :span="12">
-        <el-input v-model="config.youdaoAppSecret" type="password" show-password placeholder="有道 AppSecret" />
-      </el-col>
-    </el-row>
-
-    <!-- 腾讯云机器翻译配置 -->
-    <el-row v-show="compute.showTencent" class="margin-bottom margin-left-2em">
-      <el-col :span="12" class="lightblue rounded-corner">
-        <el-tooltip class="box-item" effect="dark" content="腾讯云API访问密钥ID，用于访问腾讯云机器翻译服务。可在腾讯云控制台的访问管理中获取" placement="top-start"
-          :show-after="500">
-          <span class="popup-text popup-vertical-left">Secret ID<el-icon class="icon-margin">
-              <ChatDotRound />
-            </el-icon></span>
-        </el-tooltip>
-      </el-col>
-      <el-col :span="12">
-        <el-input v-model="config.tencentSecretId" placeholder="腾讯云 SecretId" />
-      </el-col>
-    </el-row>
-    <el-row v-show="compute.showTencent" class="margin-bottom margin-left-2em">
-      <el-col :span="12" class="lightblue rounded-corner">
-        <el-tooltip class="box-item" effect="dark" content="腾讯云API访问密钥，用于访问腾讯云机器翻译服务。可在腾讯云控制台的访问管理中获取" placement="top-start"
-          :show-after="500">
-          <span class="popup-text popup-vertical-left">Secret Key<el-icon class="icon-margin">
-              <ChatDotRound />
-            </el-icon></span>
-        </el-tooltip>
-      </el-col>
-      <el-col :span="12">
-        <el-input v-model="config.tencentSecretKey" type="password" show-password placeholder="腾讯云 SecretKey" />
       </el-col>
     </el-row>
 
@@ -353,20 +260,6 @@
       </el-col>
       <el-col :span="12">
         <el-input v-model="config.custom" placeholder="请输入自定义接口地址" />
-      </el-col>
-    </el-row>
-
-    <!-- NewAPI 配置 -->
-    <el-row v-show="compute.showNewAPI" class="margin-bottom margin-left-2em">
-      <el-col :span="12" class="lightblue rounded-corner">
-        <el-tooltip class="box-item" effect="dark" content="填写 New API 的访问地址，如：http://localhost:3000" placement="top-start" :show-after="500">
-          <span class="popup-text popup-vertical-left">NewAPI接口<el-icon class="icon-margin">
-              <ChatDotRound />
-            </el-icon></span>
-        </el-tooltip>
-      </el-col>
-      <el-col :span="12">
-        <el-input v-model="config.newApiUrl" placeholder="请输入您的New API接口地址" />
       </el-col>
     </el-row>
 
@@ -738,28 +631,14 @@ let compute = ref({
   showToken: computed(() => servicesType.isUseToken(config.value.service)),
   // 6、是否显示 AkSk
   showAkSk: computed(() => servicesType.isUseAkSk(config.value.service)),
-  // 6.5、是否显示有道翻译配置
-  showYoudao: computed(() => servicesType.isYoudao(config.value.service)),
-  // 6.6、是否显示腾讯云机器翻译配置
-  showTencent: computed(() => servicesType.isTencent(config.value.service)),
   // 7、获取模型列表
   model: computed(() => models.get(config.value.service) || []),
   // 8、是否需要自定义接口
   showCustom: computed(() => servicesType.isCustom(config.value.service)),
-  // 9、是否显示 DeepLX URL 配置
-  showDeepLX: computed(() => config.value.service === 'deeplx'),
-  // 10、是否自定义模型
+  // 9、是否自定义模型
   showCustomModel: computed(() => servicesType.isAI(config.value.service) && config.value.model[config.value.service] === "自定义模型"),
-  // 11、判断是否为"双语模式"，控制一些翻译服务的显示
-  filteredServices: computed(() => options.services.filter((service: any) =>
-    !([service.google].includes(service.value) && config.value.display !== 1))
-  ),
-  // 12、判断是否为 coze
+  // 10、判断是否为 coze
   showRobotId: computed(() => servicesType.isCoze(config.value.service)),
-  // 13、是否显示New API配置
-  showNewAPI: computed(() => servicesType.isNewApi(config.value.service)),
-  // 14、是否显示Azure OpenAI端点配置
-  showAzureOpenaiEndpoint: computed(() => servicesType.isAzureOpenai(config.value.service)),
 })
 
 // 监听主题变化

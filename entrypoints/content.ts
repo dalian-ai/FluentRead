@@ -9,7 +9,6 @@ import { mountSelectionTranslator, unmountSelectionTranslator } from "@/entrypoi
 import { cancelAllTranslations, translateText } from "@/entrypoints/utils/translateApi";
 import { createApp } from 'vue';
 import TranslationStatus from '@/components/TranslationStatus.vue';
-import { mountNewApiComponent } from "@/entrypoints/utils/newApi";
 
 export default defineContentScript({
     matches: ['<all_urls>'],  // 匹配所有页面
@@ -52,8 +51,6 @@ export default defineContentScript({
         if (config.translationStatus === true) {
             mountTranslationStatusComponent();
         }
-
-        mountNewApiComponent();
 
         cache.cleaner();    // 检测是否清理缓存
 

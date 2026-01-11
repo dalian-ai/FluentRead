@@ -40,15 +40,8 @@ export class Config {
     customFloatingBallHotkey: string; // 自定义悬浮球快捷键
     customHotkey: string; // 自定义鼠标悬浮快捷键
     disableSelectionTranslator: boolean; // 是否禁用划词翻译
-    deeplx: string; // DeepLX 服务地址
     selectionTranslatorMode: string; // 划词翻译显示模式: 'disabled' | 'bilingual' | 'translation-only'
-    newApiUrl: string; // NewAPI地址
     maxConcurrentTranslations: number; // 最大并发翻译数量
-    youdaoAppKey: string; // 有道翻译 App Key
-    youdaoAppSecret: string; // 有道翻译 App Secret
-    tencentSecretId: string; // 腾讯云 Secret ID
-    tencentSecretKey: string; // 腾讯云 Secret Key
-    azureOpenaiEndpoint: string; // Azure OpenAI 端点地址
     animations: boolean; // 是否启用动画效果
     translationStatus: boolean; // 是否启用全文翻译进度面板
     inputBoxTranslationTrigger: string; // 输入框翻译触发方式
@@ -85,15 +78,8 @@ export class Config {
         this.customFloatingBallHotkey = ''; // 自定义快捷键为空
         this.customHotkey = ''; // 自定义鼠标悬浮快捷键为空
         this.disableSelectionTranslator = false; // 默认不禁用划词翻译
-        this.deeplx = ''; // DeepLX 默认服务地址
         this.selectionTranslatorMode = 'bilingual'; // 默认双语显示模式
-        this.newApiUrl = 'http://localhost:3000'; // NewAPI 默认地址
         this.maxConcurrentTranslations = 6; // 默认最大并发数为6
-        this.youdaoAppKey = ''; // 有道翻译 App Key
-        this.youdaoAppSecret = ''; // 有道翻译 App Secret
-        this.tencentSecretId = ''; // 腾讯云 Secret ID
-        this.tencentSecretKey = ''; // 腾讯云 Secret Key
-        this.azureOpenaiEndpoint = ''; // Azure OpenAI 端点地址
         this.animations = true; // 默认启用动画
         this.translationStatus = true; // 默认启用翻译进度面板
         this.inputBoxTranslationTrigger = 'disabled'; // 默认关闭输入框翻译
