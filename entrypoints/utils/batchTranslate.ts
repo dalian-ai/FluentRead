@@ -1,0 +1,261 @@
+/**
+ * 批量翻译管道模块
+ * 将多个翻译请求合并成一个API调用，提高效率并降低API调用成本
+ */
+
+import browser from 'webextension-polyfill';
+import { config } from './config';
+import { cache } from './cache';
+
+// 批处理任务接口
+interface BatchTask {
+  origin: string;           // 原始文本
+  context: string;          // 上下文
+  resolve: (result: string) => void;
+  reject: (error: any) => void;
+  timestamp: number;        // 添加时间戳
+}
+
+// 批处理队列
+let batchQueue: BatchTask[] = [];
+let batchTimer: any = null;
+
+// 配置参数
+const BATCH_WINDOW_MS = 300;      // 批处理窗口时间（毫秒）
+const MAX_TOKENS_PER_BATCH = 8000; // 每批最大tokens数（粗略估算：1中文字符≈2tokens，1英文单词≈1.3tokens）
+const MIN_BATCH_SIZE = 3;          // 最小批处理数量（小于此数量不进行批处理）
+
+/**
+ * 粗略估算文本的token数量
+ * 中文字符：约2 tokens/字
+ * 英文单词：约1.3 tokens/词
+ */
+function estimateTokens(text: string): number {
+  // 统计中文字符数量
+  const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+  // 统计英文单词数量（简化估算）
+  const englishWords = (text.match(/[a-zA-Z]+/g) || []).length;
+  // 其他字符按0.5 token计算
+  const otherChars = text.length - chineseChars - englishWords;
+  
+  return Math.ceil(chineseChars * 2 + englishWords * 1.3 + otherChars * 0.5);
+}
+
+/**
+ * 将批处理任务分组，确保每组不超过token限制
+ */
+function groupTasks(tasks: BatchTask[]): BatchTask[][] {
+  const groups: BatchTask[][] = [];
+  let currentGroup: BatchTask[] = [];
+  let currentTokens = 0;
+  
+  for (const task of tasks) {
+    const taskTokens = estimateTokens(task.origin);
+    
+    // 如果单个任务就超过限制，单独处理
+    if (taskTokens > MAX_TOKENS_PER_BATCH) {
+      if (currentGroup.length > 0) {
+        groups.push(currentGroup);
+        currentGroup = [];
+        currentTokens = 0;
+      }
+      groups.push([task]);
+      continue;
+    }
+    
+    // 如果加入当前组会超过限制，创建新组
+    if (currentTokens + taskTokens > MAX_TOKENS_PER_BATCH && currentGroup.length > 0) {
+      groups.push(currentGroup);
+      currentGroup = [task];
+      currentTokens = taskTokens;
+    } else {
+      currentGroup.push(task);
+      currentTokens += taskTokens;
+    }
+  }
+  
+  if (currentGroup.length > 0) {
+    groups.push(currentGroup);
+  }
+  
+  return groups;
+}
+
+/**
+ * 处理批量翻译
+ */
+async function processBatch() {
+  if (batchQueue.length === 0) return;
+  
+  // 获取当前队列的所有任务
+  const tasks = [...batchQueue];
+  batchQueue = [];
+  
+  // 如果任务数量少于最小批处理数量，逐个处理
+  if (tasks.length < MIN_BATCH_SIZE) {
+    for (const task of tasks) {
+      try {
+        const result = await translateSingle(task.origin, task.context);
+        task.resolve(result);
+      } catch (error) {
+        task.reject(error);
+      }
+    }
+    return;
+  }
+  
+  // 分组处理
+  const groups = groupTasks(tasks);
+  
+  for (const group of groups) {
+    try {
+      await translateBatch(group);
+    } catch (error) {
+      // 批量翻译失败，尝试逐个翻译
+      console.warn('[批量翻译] 批量翻译失败，回退到单独翻译:', error);
+      for (const task of group) {
+        try {
+          const result = await translateSingle(task.origin, task.context);
+          task.resolve(result);
+        } catch (err) {
+          task.reject(err);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * 批量翻译一组任务
+ */
+async function translateBatch(tasks: BatchTask[]) {
+  // 构建批量翻译的提示词
+  const origins = tasks.map((task, index) => `[${index + 1}] ${task.origin}`).join('\n\n');
+  
+  // 发送批量翻译请求
+  const result = await browser.runtime.sendMessage({
+    type: 'batch_translate',
+    context: tasks[0].context, // 使用第一个任务的上下文
+    origin: origins,
+    count: tasks.length
+  }) as string;
+  
+  // 解析批量翻译结果
+  const results = parseBatchResult(result, tasks.length);
+  
+  // 分发结果到各个任务
+  for (let i = 0; i < tasks.length; i++) {
+    const task = tasks[i];
+    const translatedText = results[i] || task.origin; // 如果解析失败，返回原文
+    
+    // 缓存结果
+    if (config.useCache) {
+      cache.localSet(task.origin, translatedText);
+    }
+    
+    task.resolve(translatedText);
+  }
+}
+
+/**
+ * 解析批量翻译结果
+ * 期望格式：[1] 翻译结果1\n\n[2] 翻译结果2\n\n...
+ */
+function parseBatchResult(result: string, expectedCount: number): string[] {
+  const results: string[] = [];
+  
+  // 尝试按序号分割
+  const pattern = /\[(\d+)\]\s*([\s\S]*?)(?=\n*\[\d+\]|$)/g;
+  let match;
+  
+  while ((match = pattern.exec(result)) !== null) {
+    const index = parseInt(match[1]) - 1;
+    const text = match[2].trim();
+    results[index] = text;
+  }
+  
+  // 如果解析失败，尝试按空行分割
+  if (results.length !== expectedCount) {
+    console.warn('[批量翻译] 按序号解析失败，尝试按空行分割');
+    const parts = result.split(/\n\s*\n/).map(s => s.trim()).filter(s => s.length > 0);
+    return parts.slice(0, expectedCount);
+  }
+  
+  return results;
+}
+
+/**
+ * 单独翻译一个任务（回退方案）
+ */
+async function translateSingle(origin: string, context: string): Promise<string> {
+  const result = await browser.runtime.sendMessage({
+    context,
+    origin
+  }) as string;
+  
+  return result;
+}
+
+/**
+ * 添加翻译任务到批处理队列
+ */
+export function batchTranslate(origin: string, context: string = document.title): Promise<string> {
+  return new Promise((resolve, reject) => {
+    // 检查缓存
+    if (config.useCache) {
+      const cachedResult = cache.localGet(origin);
+      if (cachedResult) {
+        resolve(cachedResult);
+        return;
+      }
+    }
+    
+    // 添加到批处理队列
+    batchQueue.push({
+      origin,
+      context,
+      resolve,
+      reject,
+      timestamp: Date.now()
+    });
+    
+    // 设置批处理定时器
+    if (batchTimer) {
+      clearTimeout(batchTimer);
+    }
+    
+    batchTimer = setTimeout(() => {
+      processBatch();
+      batchTimer = null;
+    }, BATCH_WINDOW_MS);
+  });
+}
+
+/**
+ * 清空批处理队列
+ */
+export function clearBatchQueue() {
+  if (batchTimer) {
+    clearTimeout(batchTimer);
+    batchTimer = null;
+  }
+  
+  // 拒绝所有等待中的任务
+  batchQueue.forEach(task => {
+    task.reject(new Error('批处理队列已清空'));
+  });
+  
+  batchQueue = [];
+}
+
+/**
+ * 立即处理所有等待中的批处理任务
+ */
+export function flushBatchQueue() {
+  if (batchTimer) {
+    clearTimeout(batchTimer);
+    batchTimer = null;
+  }
+  
+  return processBatch();
+}

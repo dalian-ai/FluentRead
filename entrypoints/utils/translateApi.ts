@@ -4,6 +4,7 @@
  */
 
 import { enqueueTranslation, clearTranslationQueue, getQueueStatus } from './translateQueue';
+import { batchTranslate, clearBatchQueue, flushBatchQueue } from './batchTranslate';
 import browser from 'webextension-polyfill';
 import { config } from './config';
 import { cache } from './cache';
@@ -28,6 +29,7 @@ export async function translateText(origin: string, context: string = document.t
     retryDelay = 1000, 
     timeout = 45000,
     useCache = config.useCache,
+    useBatch = config.useBatchTranslate ?? true, // 默认启用批量翻译
   } = options;
 
   // 如果目标语言与当前文本语言相同，直接返回原文
@@ -51,7 +53,14 @@ export async function translateText(origin: string, context: string = document.t
   // 保存配置以确保计数持久化
   storage.setItem('local:config', JSON.stringify(config));
 
-  // 使用队列处理翻译请求
+  // 如果启用批量翻译，使用批处理管道
+  if (useBatch) {
+    return enqueueTranslation(async () => {
+      return batchTranslate(origin, context);
+    });
+  }
+
+  // 否则使用原有的单独翻译逻辑
   return enqueueTranslation(async () => {
     // 创建翻译任务
     const translationTask = async (retryCount: number = 0): Promise<string> => {
@@ -105,6 +114,14 @@ export function cancelAllTranslations() {
     console.log('[翻译API] 取消所有等待中的翻译任务');
   }
   clearTranslationQueue();
+  clearBatchQueue();
+}
+
+/**
+ * 立即处理所有批处理任务（用于页面卸载前）
+ */
+export function flushAllBatchTranslations() {
+  return flushBatchQueue();
 }
 
 /**
@@ -127,4 +144,6 @@ export interface TranslateOptions {
   timeout?: number;
   /** 是否使用缓存 */
   useCache?: boolean;
+  /** 是否使用批量翻译 */
+  useBatch?: boolean;
 } 

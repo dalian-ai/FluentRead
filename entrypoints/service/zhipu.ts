@@ -24,11 +24,14 @@ async function zhipu(message: any) {
     headers.append('Content-Type', 'application/json');
     headers.append('Authorization', `Bearer ${secret}`);
 
+    // 检查是否为批量翻译请求
+    const isBatch = message.type === 'batch_translate';
+    
     // 发起 fetch 请求
     const resp = await fetch(urls[services.zhipu], {
         method: method.POST,
         headers: headers,
-        body: commonMsgTemplate(message.origin)
+        body: commonMsgTemplate(message.origin, isBatch)
     });
 
     if (resp.ok) {

@@ -11,11 +11,14 @@ async function deepseek(message: any) {
         });
 
         const url = config.proxy[config.service] || urls[config.service];
+        
+        // 检查是否为批量翻译请求
+        const isBatch = message.type === 'batch_translate';
 
         const resp = await fetch(url, {
             method: method.POST,
             headers,
-            body: deepseekMsgTemplate(message.origin)
+            body: deepseekMsgTemplate(message.origin, isBatch)
         });
 
         if (!resp.ok) {

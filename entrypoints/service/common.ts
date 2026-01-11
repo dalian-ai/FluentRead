@@ -6,7 +6,6 @@ import { services } from "../utils/option";
 
 async function common(message: any) {
     try {
-
         const headers = new Headers({
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${config.token[config.service]}`
@@ -18,11 +17,14 @@ async function common(message: any) {
         }
                 
         const url = config.proxy[config.service] || urls[config.service];
+        
+        // 检查是否为批量翻译请求
+        const isBatch = message.type === 'batch_translate';
 
         const resp = await fetch(url, {
             method: method.POST,
             headers,
-            body: commonMsgTemplate(message.origin)
+            body: commonMsgTemplate(message.origin, isBatch)
         });
 
         if (!resp.ok) {

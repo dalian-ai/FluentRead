@@ -87,6 +87,11 @@ export const options = {
         {value: true, label: "开启"},
         {value: false, label: "关闭"},
     ],
+    // 是否使用批量翻译
+    useBatchTranslate: [
+        {value: true, label: "开启（推荐，更快更省）"},
+        {value: false, label: "关闭"},
+    ],
     form: [{value: "auto", label: "自动检测"}],
     to: [
         {value: "zh-Hans", label: "中文"},
@@ -232,6 +237,7 @@ export const defaultOption = {
 {{origin}}`,
     count: 0,
     useCache: true,
+    useBatchTranslate: true, // 默认开启批量翻译
     floatingBallHotkey: "Alt+T", // 默认悬浮球快捷键
     inputBoxTranslationTrigger: "disabled", // 默认关闭输入框翻译
     inputBoxTranslationTarget: "en", // 默认翻译成英文

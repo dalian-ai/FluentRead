@@ -168,6 +168,13 @@ export default defineBackground({
                         return;
                     }
                     
+                    // 处理批量翻译请求
+                    if (message.type === 'batch_translate') {
+                        const result = await _service[config.service](message);
+                        resolve(result);
+                        return;
+                    }
+                    
                     // 处理普通翻译请求
                     _service[config.service](message)
                         .then(resp => resolve(resp))    // 成功
