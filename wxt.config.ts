@@ -23,21 +23,19 @@ export default defineConfig({
     }),
     manifest: {
         permissions: ['storage', 'contextMenus'],
+        browser_specific_settings: {
+            gecko: {
+                strict_min_version: '140.0',
+                data_collection_permissions: {
+                    required: ['none'],
+                },
+            },
+        },
     },
     manifestGeneration: {
         chrome: {
             permissions: ['storage', 'contextMenus', 'offscreen'],
-        },
-        firefox: {
-            permissions: ['storage', 'contextMenus'],
-            browser_specific_settings: {
-                gecko: {
-                    strict_min_version: '109.0',
-                    data_collection_permissions: {
-                        user_data_collection: false,
-                    },
-                },
-            },
+            browser_specific_settings: undefined,
         },
     },
 
