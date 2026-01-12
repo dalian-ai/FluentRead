@@ -22,7 +22,7 @@ let batchTimer: any = null;
 
 // 配置参数
 const BATCH_WINDOW_MS = 300;      // 批处理窗口时间（毫秒）
-const MAX_TOKENS_PER_BATCH = 6000; // 每批最大tokens数（粗略估算：1中文字符≈2tokens，1英文单词≈1.3tokens）
+const MAX_TOKENS_PER_BATCH = 7000; // 每批最大tokens数（粗略估算：1中文字符≈2tokens，1英文单词≈1.3tokens）
 const MIN_BATCH_SIZE = 3;          // 最小批处理数量（小于此数量不进行批处理）
 
 /**

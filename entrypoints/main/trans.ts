@@ -16,6 +16,52 @@ let isAutoTranslating = false; // 控制是否继续翻译新内容
 let observer: IntersectionObserver | null = null; // 保存观察器实例
 let mutationObserver: MutationObserver | null = null; // 保存 DOM 变化观察器实例
 
+// 全文翻译的token限制
+const MAX_TRANSLATION_TOKENS = 10000;
+
+/**
+ * 粗略估算文本的token数量
+ * 中文字符：约2 tokens/字
+ * 英文单词：约1.3 tokens/词
+ */
+function estimateTokens(text: string): number {
+    // 统计中文字符数量
+    const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+    // 统计英文单词数量（简化估算）
+    const englishWords = (text.match(/[a-zA-Z]+/g) || []).length;
+    // 其他字符按0.5 token计算
+    const otherChars = text.length - chineseChars - englishWords;
+    
+    return Math.ceil(chineseChars * 2 + englishWords * 1.3 + otherChars * 0.5);
+}
+
+/**
+ * 根据token限制截断节点数组
+ * @param nodes 所有节点
+ * @param maxTokens 最大token数
+ * @returns 截断后的节点数组
+ */
+function truncateNodesByTokens(nodes: Element[], maxTokens: number): Element[] {
+    const result: Element[] = [];
+    let totalTokens = 0;
+    
+    for (const node of nodes) {
+        const nodeText = node.textContent || '';
+        const nodeTokens = estimateTokens(nodeText);
+        
+        // 如果加入当前节点会超过限制，则停止
+        if (totalTokens + nodeTokens > maxTokens) {
+            console.log(`[FluentRead] 达到token限制: ${totalTokens}/${maxTokens}，已处理${result.length}/${nodes.length}个节点`);
+            break;
+        }
+        
+        result.push(node);
+        totalTokens += nodeTokens;
+    }
+    
+    return result;
+}
+
 // 使用自定义属性标记已翻译的节点
 const TRANSLATED_ATTR = 'data-fr-translated';
 const TRANSLATED_ID_ATTR = 'data-fr-node-id'; // 添加节点ID属性
@@ -91,13 +137,28 @@ export function autoTranslateEnglishPage() {
     // }
     // console.log('当前页面非目标语言，开始翻译');
 
-    // 获取所有需要翻译的节点
-    const nodes = grabAllNode(document.body);
-    if (!nodes.length) return;
+    // 获取所有需要翻译的节点（尝试获取全文，而非仅viewport）
+    let allNodes = grabAllNode(document.body);
+    if (!allNodes.length) return;
+
+    // 估算总token数
+    const totalText = allNodes.map(n => n.textContent || '').join(' ');
+    const totalTokens = estimateTokens(totalText);
+    console.log(`[FluentRead] 全文共${allNodes.length}个节点，估计约${totalTokens} tokens`);
+
+    // 如果超过10000 tokens，则截断
+    let nodes = allNodes;
+    if (totalTokens > MAX_TRANSLATION_TOKENS) {
+        console.log(`[FluentRead] 全文超过${MAX_TRANSLATION_TOKENS} tokens限制，将只翻译前${MAX_TRANSLATION_TOKENS} tokens`);
+        nodes = truncateNodesByTokens(allNodes, MAX_TRANSLATION_TOKENS);
+    } else {
+        console.log(`[FluentRead] 全文未超过限制，将翻译全部内容`);
+    }
 
     isAutoTranslating = true;
 
-    // 创建观察器
+    // 创建观察器 - 改为立即翻译所有节点，而不是等待它们进入视口
+    // 但为了性能和用户体验，仍然保留IntersectionObserver的懒加载机制
     observer = new IntersectionObserver((entries, observer) => {
         entries.forEach(entry => {
             if (entry.isIntersecting && isAutoTranslating) {
@@ -128,8 +189,8 @@ export function autoTranslateEnglishPage() {
         });
     }, {
         root: null,
-        rootMargin: '50px',
-        threshold: 0.1 // 只要出现10%就开始翻译
+        rootMargin: '200px',  // 增加预加载范围，提前翻译即将进入视口的内容
+        threshold: 0.05 // 降低阈值，更早开始翻译
     });
 
     // 开始观察所有节点
