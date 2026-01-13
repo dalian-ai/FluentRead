@@ -19,6 +19,100 @@ let mutationObserver: MutationObserver | null = null; // 保存 DOM 变化观察
 // 全文翻译的token限制
 const MAX_TRANSLATION_TOKENS = 10000;
 
+// 页面停留时间检测
+let dwellTimer: any = null;
+let hasDwellTranslated = false; // 防止重复触发
+let firstBatchCompleted = false; // 第一批翻译是否完成
+const DWELL_TIME_MS = 5000; // 停留5秒后触发批量翻译
+
+/**
+ * 启动页面停留时间检测
+ * 只在用户主动翻译且第一批翻译完成后调用
+ */
+export function startDwellTimeDetection() {
+    // 必须满足：第一批已完成 && 未执行过全量翻译 && 当前未在翻译全部内容
+    if (!firstBatchCompleted || hasDwellTranslated) return;
+    
+    // 清除之前的计时器
+    if (dwellTimer) {
+        clearTimeout(dwellTimer);
+    }
+    
+    console.log('[FluentRead] 第一批翻译已完成，开始监测用户停留时间...');
+    
+    dwellTimer = setTimeout(() => {
+        if (!hasDwellTranslated) {
+            console.log('[FluentRead] 用户停留足够时间，开始批量翻译全部内容');
+            hasDwellTranslated = true;
+            batchTranslateAllContent();
+        }
+    }, DWELL_TIME_MS);
+}
+
+/**
+ * 停止页面停留时间检测
+ */
+export function stopDwellTimeDetection() {
+    if (dwellTimer) {
+        clearTimeout(dwellTimer);
+        dwellTimer = null;
+    }
+}
+
+/**
+ * 批量翻译所有内容（不受10000 token限制）
+ * 只翻译尚未翻译的节点
+ */
+function batchTranslateAllContent() {
+    // 获取所有需要翻译的节点
+    const allNodes = grabAllNode(document.body);
+    if (!allNodes.length) return;
+    
+    // 只获取尚未翻译的节点
+    const untranslatedNodes = allNodes.filter(node => !node.hasAttribute(TRANSLATED_ATTR));
+    
+    if (!untranslatedNodes.length) {
+        console.log('[FluentRead] 所有内容已翻译完成');
+        return;
+    }
+    
+    const totalText = untranslatedNodes.map(n => n.textContent || '').join(' ');
+    const totalTokens = estimateTokens(totalText);
+    console.log(`[FluentRead] 批量翻译剩余内容：${untranslatedNodes.length}个节点，估计约${totalTokens} tokens`);
+    
+    // 翻译剩余的所有节点
+    let translatedCount = 0;
+    untranslatedNodes.forEach((node, index) => {
+        // 去重
+        if (node.hasAttribute(TRANSLATED_ATTR)) return;
+        
+        // 为节点分配唯一ID
+        const nodeId = `fr-node-${nodeIdCounter++}`;
+        node.setAttribute(TRANSLATED_ID_ATTR, nodeId);
+        
+        // 保存原始内容
+        originalContents.set(nodeId, node.innerHTML);
+        
+        // 标记为已翻译
+        node.setAttribute(TRANSLATED_ATTR, 'true');
+        
+        // 分批处理，每50个节点为一批，批次间延迟100ms
+        const batchDelay = Math.floor(index / 50) * 100;
+        
+        setTimeout(() => {
+            if (config.display === styles.bilingualTranslation) {
+                handleBilingualTranslation(node, false);
+            } else {
+                handleSingleTranslation(node, false);
+            }
+        }, batchDelay);
+        
+        translatedCount++;
+    });
+    
+    console.log(`[FluentRead] 批量翻译：已启动${translatedCount}个剩余节点的翻译任务`);
+}
+
 /**
  * 粗略估算文本的token数量
  * 中文字符：约2 tokens/字
@@ -112,6 +206,9 @@ export function restoreOriginalContent() {
     
     // 6. 重置所有翻译相关的状态
     isAutoTranslating = false;
+    hasDwellTranslated = false; // 重置停留翻译标记
+    firstBatchCompleted = false; // 重置第一批完成标记
+    stopDwellTimeDetection(); // 停止停留检测
     htmlSet.clear(); // 清空防抖集合
     nodeIdCounter = 0; // 重置节点ID计数器
     
@@ -156,47 +253,52 @@ export function autoTranslateEnglishPage() {
     }
 
     isAutoTranslating = true;
+    firstBatchCompleted = false; // 重置第一批完成标记
 
-    // 创建观察器 - 改为立即翻译所有节点，而不是等待它们进入视口
-    // 但为了性能和用户体验，仍然保留IntersectionObserver的懒加载机制
-    observer = new IntersectionObserver((entries, observer) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting && isAutoTranslating) {
-                const node = entry.target as Element;
+    // 立即翻译所有选定的节点（前10000 tokens），而不是等待它们进入viewport
+    let translatedCount = 0;
+    const totalNodesToTranslate = nodes.length;
+    
+    nodes.forEach((node, index) => {
+        // 去重
+        if (node.hasAttribute(TRANSLATED_ATTR)) return;
+        
+        // 为节点分配唯一ID
+        const nodeId = `fr-node-${nodeIdCounter++}`;
+        node.setAttribute(TRANSLATED_ID_ATTR, nodeId);
+        
+        // 保存原始内容
+        originalContents.set(nodeId, node.innerHTML);
+        
+        // 标记为已翻译
+        node.setAttribute(TRANSLATED_ATTR, 'true');
 
-                // 去重
-                if (node.hasAttribute(TRANSLATED_ATTR)) return;
-                
-                // 为节点分配唯一ID
-                const nodeId = `fr-node-${nodeIdCounter++}`;
-                node.setAttribute(TRANSLATED_ID_ATTR, nodeId);
-                
-                // 保存原始内容
-                originalContents.set(nodeId, node.innerHTML);
-                
-                // 标记为已翻译
-                node.setAttribute(TRANSLATED_ATTR, 'true');
-
-                if (config.display === styles.bilingualTranslation) {
-                    handleBilingualTranslation(node, false);
-                } else {
-                    handleSingleTranslation(node, false);
-                }
-
-                // 停止观察该节点
-                observer.unobserve(node);
+        // 添加小延迟，避免一次性发起过多请求，按批次翻译
+        // 每50个节点为一批，批次间延迟100ms
+        const batchDelay = Math.floor(index / 50) * 100;
+        
+        setTimeout(() => {
+            if (config.display === styles.bilingualTranslation) {
+                handleBilingualTranslation(node, false);
+            } else {
+                handleSingleTranslation(node, false);
             }
-        });
-    }, {
-        root: null,
-        rootMargin: '200px',  // 增加预加载范围，提前翻译即将进入视口的内容
-        threshold: 0.05 // 降低阈值，更早开始翻译
+            
+            // 检查是否是最后一个节点，如果是则标记第一批翻译完成
+            if (index === totalNodesToTranslate - 1) {
+                // 延迟一点时间确保最后的翻译请求已发出
+                setTimeout(() => {
+                    firstBatchCompleted = true;
+                    console.log('[FluentRead] 第一批翻译任务已全部启动');
+                    startDwellTimeDetection(); // 启动停留检测
+                }, 500);
+            }
+        }, batchDelay);
+        
+        translatedCount++;
     });
-
-    // 开始观察所有节点
-    nodes.forEach(node => {
-        observer?.observe(node);
-    });
+    
+    console.log(`[FluentRead] 已启动${translatedCount}个节点的翻译任务`);
 
     // 创建 MutationObserver 监听 DOM 变化
     mutationObserver = new MutationObserver((mutations) => {

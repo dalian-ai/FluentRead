@@ -1,4 +1,4 @@
-import { handleTranslation, autoTranslateEnglishPage, restoreOriginalContent } from "./main/trans";
+import { handleTranslation, autoTranslateEnglishPage, restoreOriginalContent, startDwellTimeDetection, stopDwellTimeDetection } from "./main/trans";
 import { cache } from "./utils/cache";
 import { constants } from "@/entrypoints/utils/constant";
 import { getCenterPoint } from "@/entrypoints/utils/common";
