@@ -172,17 +172,23 @@ async function translateBatch(tasks: BatchTask[]) {
   const origins = uniqueTasksList.map((task, index) => `[${index + 1}] ${task.origin}`).join('\n\n');
   
   // 发送批量翻译请求
-  const result = await browser.runtime.sendMessage({
+  let result = await browser.runtime.sendMessage({
     type: 'batch_translate',
     context: uniqueTasksList[0].context,
     origin: origins,
     count: uniqueTasksList.length
   }) as string;
   
-  // 确保result是字符串
+  // 确保result是字符串，如果是错误对象则提取错误信息
   if (typeof result !== 'string') {
-    console.error('[批量翻译] API返回结果不是字符串:', typeof result, result);
-    throw new Error('API返回结果类型错误');
+    // 检查是否是错误对象
+    if (typeof result === 'object' && result !== null && 'error' in result) {
+      const errorDetail = (result as any).error;
+      console.error('[批量翻译-去重] 收到错误对象:', errorDetail);
+      throw new Error(errorDetail);
+    }
+    console.error('[批量翻译-去重] API返回结果类型异常:', typeof result, result);
+    throw new Error(`API返回结果类型错误: ${typeof result}`);
   }
   
   // 解析批量翻译结果
@@ -221,17 +227,23 @@ async function translateBatchNormal(tasks: BatchTask[]) {
   console.log('[批量翻译] 发送批量翻译请求，任务数:', tasks.length);
   
   // 发送批量翻译请求
-  const result = await browser.runtime.sendMessage({
+  let result = await browser.runtime.sendMessage({
     type: 'batch_translate',
     context: tasks[0].context, // 使用第一个任务的上下文
     origin: origins,
     count: tasks.length
   }) as string;
   
-  // 确保result是字符串
+  // 确保result是字符串，如果是错误对象则提取错误信息
   if (typeof result !== 'string') {
-    console.error('[批量翻译] API返回结果不是字符串:', typeof result, result);
-    result = JSON.stringify(result);
+    // 检查是否是错误对象
+    if (typeof result === 'object' && result !== null && 'error' in result) {
+      const errorDetail = (result as any).error;
+      console.error('[批量翻译-正常] 收到错误对象:', errorDetail);
+      throw new Error(errorDetail);
+    }
+    console.error('[批量翻译-正常] API返回结果类型异常:', typeof result, result);
+    throw new Error(`API返回结果类型错误: ${typeof result}`);
   }
   
   console.log('[批量翻译] 收到翻译结果，长度:', result.length, '预览:', result.substring(0, 200));
@@ -499,13 +511,16 @@ export async function batchTranslateTexts(texts: string[], context: string = doc
           await translateBatch(group);
           console.log(`[直接批量翻译] 完成批次 ${groupIndex + 1}/${groups.length}`);
         } catch (error) {
-          console.warn(`[直接批量翻译] 批次 ${groupIndex + 1} 翻译失败，回退到单独翻译:`, error);
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.error(`[直接批量翻译] 批次 ${groupIndex + 1} 翻译失败，错误: ${errorMsg}，回退到单独翻译`, error);
           // 失败时逐个翻译
           for (const task of group) {
             try {
               const result = await translateSingle(task.origin, task.context);
               task.resolve(result);
             } catch (err) {
+              const singleErrorMsg = err instanceof Error ? err.message : String(err);
+              console.error('[直接批量翻译] 单独翻译也失败:', singleErrorMsg, err);
               task.reject(err);
             }
           }

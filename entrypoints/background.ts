@@ -178,9 +178,17 @@ export default defineBackground({
                     // 处理普通翻译请求
                     _service[config.service](message)
                         .then(resp => resolve(resp))    // 成功
-                        .catch(error => reject(error)); // 失败
+                        .catch(error => {
+                            // 提供详细的错误信息
+                            const errorMsg = error instanceof Error ? error.message : String(error);
+                            console.error('[Background] 翻译失败:', errorMsg, error);
+                            reject(new Error(errorMsg)); // 确保reject的是Error对象
+                        });
                 } catch (error) {
-                    resolve({ success: false, error: error instanceof Error ? error.message : String(error) });
+                    // 捕获异常并提供详细信息
+                    const errorMsg = error instanceof Error ? error.message : String(error);
+                    console.error('[Background] 翻译异常:', errorMsg, error);
+                    reject(new Error(errorMsg)); // 确保reject的是Error对象
                 }
             });
         });

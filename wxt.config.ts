@@ -19,6 +19,10 @@ export default defineConfig({
         plugins: [vue()],
         define: {
             'process.env.VUE_APP_VERSION': JSON.stringify(packageJson.version),
+        },
+        build: {
+            minify: false,  // 禁用代码压缩，便于调试
+            sourcemap: true, // 生成 source map
         }
     }),
     manifest: {
