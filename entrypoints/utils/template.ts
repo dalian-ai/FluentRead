@@ -26,14 +26,21 @@ ${origin}`;
             .replace('{{to}}', config.to).replace('{{origin}}', origin);
     }
 
-    return JSON.stringify({
+    const payload: any = {
         'model': model,
         "temperature": 1.0,
         'messages': [
             {'role': 'system', 'content': system},
             {'role': 'user', 'content': user},
         ]
-    })
+    };
+    
+    // 批量翻译时强制 JSON 输出
+    if (isBatch) {
+        payload.response_format = { type: "json_object" };
+    }
+    
+    return JSON.stringify(payload)
 }
 
 // deepseek
@@ -71,6 +78,11 @@ ${origin}`;
     // 如果不是 deepseek-reasoner 模型,则添加 temperature
     if (model !== 'deepseek-reasoner') {
         payload.temperature = 0.7;
+    }
+    
+    // 批量翻译时强制 JSON 输出
+    if (isBatch) {
+        payload.response_format = { type: "json_object" };
     }
 
     return JSON.stringify(payload);

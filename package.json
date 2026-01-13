@@ -3,7 +3,7 @@
   "name": "简单单翻译器",
   "description": "浏览器开源翻译插件",
   "private": true,
-  "version": "0.22.0",
+  "version": "0.26.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",
