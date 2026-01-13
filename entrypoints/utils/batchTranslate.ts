@@ -23,7 +23,6 @@ let isProcessing = false; // 标记是否正在处理批次
 
 // 配置参数
 const BATCH_WINDOW_MS = 50;       // 批处理窗口时间（毫秒）- 从300ms减少到50ms提高响应速度
-const IMMEDIATE_FLUSH_DELAY = 10; // 立即处理模式的短延迟，用于聚合同时到达的请求
 const MAX_TOKENS_PER_BATCH = 10000; // 每批最大tokens数 - 增加到10000减少批次数
 const MIN_BATCH_SIZE = 3;          // 最小批处理数量（小于此数量不进行批处理）
 
@@ -319,7 +318,7 @@ async function translateSingle(origin: string, context: string): Promise<string>
 /**
  * 添加翻译任务到批处理队列
  */
-export function batchTranslate(origin: string, context: string = document.title, immediateFlush: boolean = false): Promise<string> {
+export function batchTranslate(origin: string, context: string = document.title): Promise<string> {
   return new Promise((resolve, reject) => {
     // 检查缓存
     if (config.useCache) {
@@ -339,24 +338,13 @@ export function batchTranslate(origin: string, context: string = document.title,
       timestamp: Date.now()
     });
     
-    // 如果是立即处理模式，使用很短的延迟让同时发起的请求能聚合
-    if (immediateFlush) {
-      if (batchTimer) {
-        clearTimeout(batchTimer);
-      }
-      batchTimer = setTimeout(() => {
-        batchTimer = null;
-        processBatch();
-      }, IMMEDIATE_FLUSH_DELAY);
-      return;
-    }
-    
     // 设置批处理定时器
     if (batchTimer) {
       clearTimeout(batchTimer);
     }
     
     batchTimer = setTimeout(() => {
+      batchTimer = null;
       processBatch();
     }, BATCH_WINDOW_MS);
   });
