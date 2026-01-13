@@ -74,12 +74,28 @@ export async function translateText(origin: string, context: string = document.t
     const translationTask = async (retryCount: number = 0): Promise<string> => {
       try {
         // 发送翻译请求给background脚本处理
-        const result = await Promise.race([
+        const rawResult = await Promise.race([
           browser.runtime.sendMessage({ context, origin: cleanedOrigin }),
           new Promise<never>((_, reject) => 
             setTimeout(() => reject(new Error('翻译请求超时')), timeout)
           )
         ]) as string;
+
+        // 解析JSON格式的翻译结果
+        let result: string;
+        try {
+          const jsonResult = JSON.parse(rawResult);
+          if (jsonResult.translation) {
+            // 单个翻译的JSON格式: {"translation":"译文"}
+            result = jsonResult.translation;
+          } else {
+            // 如果不是预期的JSON格式，使用原始结果
+            result = rawResult;
+          }
+        } catch (e) {
+          // JSON解析失败，使用原始结果
+          result = rawResult;
+        }
 
         // 如果翻译结果为空或与原文完全相同，直接返回原文
         if (!result || result === origin) {

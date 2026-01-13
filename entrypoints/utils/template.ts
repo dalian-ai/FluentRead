@@ -21,9 +21,12 @@ export function commonMsgTemplate(origin: string, isBatch: boolean = false) {
 待翻译内容：
 ${origin}`;
     } else {
-        // 单独翻译模式：使用原有的用户提示词
-        user = (config.user_role[config.service] || defaultOption.user_role)
-            .replace('{{to}}', config.to).replace('{{origin}}', origin);
+        // 单独翻译模式：使用JSON格式返回
+        user = `翻译以下文本到${config.to}，严格按JSON格式返回，不要添加任何其他内容：
+{"translation":"译文"}
+
+待翻译内容：
+${origin}`;
     }
 
     const payload: any = {
@@ -32,13 +35,10 @@ ${origin}`;
         'messages': [
             {'role': 'system', 'content': system},
             {'role': 'user', 'content': user},
-        ]
+        ],
+        // 强制 JSON 输出
+        response_format: { type: "json_object" }
     };
-    
-    // 批量翻译时强制 JSON 输出
-    if (isBatch) {
-        payload.response_format = { type: "json_object" };
-    }
     
     return JSON.stringify(payload)
 }
@@ -62,9 +62,12 @@ export function deepseekMsgTemplate(origin: string, isBatch: boolean = false) {
 待翻译内容：
 ${origin}`;
     } else {
-        // 单独翻译模式
-        user = (config.user_role[config.service] || defaultOption.user_role)
-            .replace('{{to}}', config.to).replace('{{origin}}', origin);
+        // 单独翻译模式：使用JSON格式返回
+        user = `翻译以下文本到${config.to}，严格按JSON格式返回，不要添加任何其他内容：
+{"translation":"译文"}
+
+待翻译内容：
+${origin}`;
     }
 
     const payload: any = {
@@ -80,10 +83,8 @@ ${origin}`;
         payload.temperature = 0.7;
     }
     
-    // 批量翻译时强制 JSON 输出
-    if (isBatch) {
-        payload.response_format = { type: "json_object" };
-    }
+    // 强制 JSON 输出
+    payload.response_format = { type: "json_object" };
 
     return JSON.stringify(payload);
 }
