@@ -19,9 +19,11 @@ interface BatchTask {
 // 批处理队列
 let batchQueue: BatchTask[] = [];
 let batchTimer: any = null;
+let isProcessing = false; // 标记是否正在处理批次
 
 // 配置参数
 const BATCH_WINDOW_MS = 50;       // 批处理窗口时间（毫秒）- 从300ms减少到50ms提高响应速度
+const IMMEDIATE_FLUSH_DELAY = 10; // 立即处理模式的短延迟，用于聚合同时到达的请求
 const MAX_TOKENS_PER_BATCH = 10000; // 每批最大tokens数 - 增加到10000减少批次数
 const MIN_BATCH_SIZE = 3;          // 最小批处理数量（小于此数量不进行批处理）
 
@@ -87,45 +89,54 @@ function groupTasks(tasks: BatchTask[]): BatchTask[][] {
 async function processBatch() {
   if (batchQueue.length === 0) return;
   
+  // 如果正在处理，不重复处理
+  if (isProcessing) return;
+  
+  isProcessing = true;
+  
   // 获取当前队列的所有任务
   const tasks = [...batchQueue];
   batchQueue = [];
   
-  // 如果任务数量少于最小批处理数量，逐个处理
-  if (tasks.length < MIN_BATCH_SIZE) {
-    for (const task of tasks) {
-      try {
-        const result = await translateSingle(task.origin, task.context);
-        task.resolve(result);
-      } catch (error) {
-        task.reject(error);
-      }
-    }
-    return;
-  }
-  
-  // 分组处理 - 并行处理所有批次以提高速度
-  const groups = groupTasks(tasks);
-  
-  console.log(`[批量翻译] 分为${groups.length}个批次并行处理`);
-  
-  // 并行处理所有批次
-  await Promise.all(groups.map(async (group) => {
-    try {
-      await translateBatch(group);
-    } catch (error) {
-      // 批量翻译失败，尝试逐个翻译
-      console.warn('[批量翻译] 批量翻译失败，回退到单独翻译:', error);
-      for (const task of group) {
+  try {
+    // 如果任务数量少于最小批处理数量，逐个处理
+    if (tasks.length < MIN_BATCH_SIZE) {
+      for (const task of tasks) {
         try {
           const result = await translateSingle(task.origin, task.context);
           task.resolve(result);
-        } catch (err) {
-          task.reject(err);
+        } catch (error) {
+          task.reject(error);
         }
       }
+      return;
     }
-  }));
+    
+    // 分组处理 - 并行处理所有批次以提高速度
+    const groups = groupTasks(tasks);
+    
+    console.log(`[批量翻译] 分为${groups.length}个批次并行处理`);
+    
+    // 并行处理所有批次
+    await Promise.all(groups.map(async (group) => {
+      try {
+        await translateBatch(group);
+      } catch (error) {
+        // 批量翻译失败，尝试逐个翻译
+        console.warn('[批量翻译] 批量翻译失败，回退到单独翻译:', error);
+        for (const task of group) {
+          try {
+            const result = await translateSingle(task.origin, task.context);
+            task.resolve(result);
+          } catch (err) {
+            task.reject(err);
+          }
+        }
+      }
+    }));
+  } finally {
+    isProcessing = false;
+  }
 }
 
 /**
@@ -328,13 +339,15 @@ export function batchTranslate(origin: string, context: string = document.title,
       timestamp: Date.now()
     });
     
-    // 如果是立即处理模式，直接处理不等待
+    // 如果是立即处理模式，使用很短的延迟让同时发起的请求能聚合
     if (immediateFlush) {
       if (batchTimer) {
         clearTimeout(batchTimer);
-        batchTimer = null;
       }
-      processBatch();
+      batchTimer = setTimeout(() => {
+        batchTimer = null;
+        processBatch();
+      }, IMMEDIATE_FLUSH_DELAY);
       return;
     }
     
@@ -376,4 +389,92 @@ export function flushBatchQueue() {
   }
   
   return processBatch();
+}
+
+/**
+ * 直接批量翻译一组文本，不经过队列和窗口期
+ * 用于全文翻译场景，已知所有文本，直接分批并行发送
+ * @param texts 要翻译的文本数组
+ * @param context 翻译上下文
+ * @returns Promise<string[]> 翻译结果数组，与输入顺序对应
+ */
+export async function batchTranslateTexts(texts: string[], context: string = document.title): Promise<string[]> {
+  console.log(`[直接批量翻译] 开始翻译 ${texts.length} 个文本`);
+  
+  // 创建任务数组
+  const tasks: BatchTask[] = texts.map((text, index) => ({
+    origin: text,
+    context,
+    resolve: () => {},  // 临时占位
+    reject: () => {},   // 临时占位
+    timestamp: Date.now()
+  }));
+  
+  // 检查缓存
+  const results: (string | null)[] = new Array(texts.length).fill(null);
+  const uncachedTasks: BatchTask[] = [];
+  const uncachedIndices: number[] = [];
+  
+  for (let i = 0; i < tasks.length; i++) {
+    if (config.useCache) {
+      const cached = cache.localGet(texts[i]);
+      if (cached) {
+        results[i] = cached;
+        continue;
+      }
+    }
+    uncachedTasks.push(tasks[i]);
+    uncachedIndices.push(i);
+  }
+  
+  console.log(`[直接批量翻译] ${results.filter(r => r !== null).length} 个来自缓存, ${uncachedTasks.length} 个需要翻译`);
+  
+  if (uncachedTasks.length === 0) {
+    return results as string[];
+  }
+  
+  // 按token限制分组
+  const groups = groupTasks(uncachedTasks);
+  console.log(`[直接批量翻译] 分为 ${groups.length} 个批次并行翻译`);
+  
+  // 存储每个任务的Promise
+  const taskPromises: Promise<string>[] = uncachedTasks.map(() => 
+    new Promise<string>((resolve, reject) => {})
+  );
+  
+  // 为每个任务设置resolve/reject
+  uncachedTasks.forEach((task, idx) => {
+    taskPromises[idx] = new Promise<string>((resolve, reject) => {
+      task.resolve = resolve;
+      task.reject = reject;
+    });
+  });
+  
+  // 并行处理所有批次
+  await Promise.all(groups.map(async (group) => {
+    try {
+      await translateBatch(group);
+    } catch (error) {
+      console.warn('[直接批量翻译] 批次翻译失败，回退到单独翻译:', error);
+      // 失败时逐个翻译
+      for (const task of group) {
+        try {
+          const result = await translateSingle(task.origin, task.context);
+          task.resolve(result);
+        } catch (err) {
+          task.reject(err);
+        }
+      }
+    }
+  }));
+  
+  // 等待所有翻译完成并填充结果
+  const translatedResults = await Promise.all(taskPromises);
+  uncachedIndices.forEach((originalIndex, i) => {
+    results[originalIndex] = translatedResults[i];
+  });
+  
+  console.log(`[直接批量翻译] 完成，成功: ${results.filter(r => r !== null).length}/${texts.length}`);
+  
+  return results as string[];
 }

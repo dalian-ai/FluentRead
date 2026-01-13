@@ -8,6 +8,7 @@ import { detectlang, throttle } from "@/entrypoints/utils/common";
 import { getMainDomain, replaceCompatFn } from "@/entrypoints/main/compat";
 import { config } from "@/entrypoints/utils/config";
 import { translateText, cancelAllTranslations } from '@/entrypoints/utils/translateApi';
+import { batchTranslateTexts } from '@/entrypoints/utils/batchTranslate';
 
 let hoverTimer: any; // 鼠标悬停计时器
 let htmlSet = new Set(); // 防抖
@@ -234,9 +235,8 @@ function batchTranslateAllContent() {
     const totalTokens = estimateTokens(totalText);
     console.log(`[FluentRead] 批量翻译剩余内容：${nodesToTranslate.length}个节点，估计约${totalTokens} tokens`);
     
-    // 翻译剩余的所有节点
-    let translatedCount = 0;
-    nodesToTranslate.forEach((node, index) => {
+    // 准备所有节点数据
+    const nodeDataList = nodesToTranslate.map(node => {
         // 为节点分配唯一ID
         const nodeId = `fr-node-${nodeIdCounter++}`;
         node.setAttribute(TRANSLATED_ID_ATTR, nodeId);
@@ -244,24 +244,63 @@ function batchTranslateAllContent() {
         // 保存原始内容
         originalContents.set(nodeId, node.innerHTML);
         
-        // 标记为已翻译
+        // 标记为已翻译（防止重复翻译）
         node.setAttribute(TRANSLATED_ATTR, 'true');
         
-        // 分批处理，每100个节点为一批，批次间延迟20ms
-        const batchDelay = Math.floor(index / 100) * 20;
-        
-        setTimeout(() => {
-            if (config.display === styles.bilingualTranslation) {
-                handleBilingualTranslation(node, false);
-            } else {
-                handleSingleTranslation(node, false);
-            }
-        }, batchDelay);
-        
-        translatedCount++;
+        return {
+            node,
+            nodeId,
+            text: node.textContent || ''
+        };
     });
     
-    console.log(`[FluentRead] 批量翻译：已启动${translatedCount}个剩余节点的翻译任务`);
+    // 收集所有文本
+    const textsToTranslate = nodeDataList.map(data => data.text);
+    
+    // 直接批量翻译所有文本，不使用窗口期
+    batchTranslateTexts(textsToTranslate, document.title)
+        .then(translatedTexts => {
+            console.log(`[FluentRead] 批量翻译完成，收到${translatedTexts.length}个结果`);
+            
+            // 更新DOM
+            nodeDataList.forEach((data, index) => {
+                const translatedText = translatedTexts[index];
+                if (!translatedText) {
+                    console.warn(`[FluentRead] 节点${index}翻译失败`);
+                    return;
+                }
+                
+                const { node } = data;
+                
+                if (config.display === styles.bilingualTranslation) {
+                    // 双语显示
+                    const originalHTML = node.innerHTML;
+                    const bilingualDiv = document.createElement('div');
+                    bilingualDiv.className = 'fluent-read-bilingual-content';
+                    bilingualDiv.innerHTML = translatedText;
+                    
+                    node.innerHTML = '';
+                    
+                    const originalDiv = document.createElement('div');
+                    originalDiv.className = 'fluent-read-original';
+                    originalDiv.innerHTML = originalHTML;
+                    
+                    node.appendChild(originalDiv);
+                    node.appendChild(bilingualDiv);
+                    node.classList.add('fluent-read-bilingual');
+                } else {
+                    // 单语显示
+                    node.textContent = translatedText;
+                }
+            });
+            
+            console.log(`[FluentRead] 全部翻译完成并更新到DOM`);
+            // 启动定期重新扫描
+            startRescan();
+        })
+        .catch(error => {
+            console.error('[FluentRead] 批量翻译失败:', error);
+        });
 }
 
 /**
@@ -407,11 +446,10 @@ export function autoTranslateEnglishPage() {
     isAutoTranslating = true;
     firstBatchCompleted = false; // 重置第一批完成标记
 
-    // 立即翻译所有选定的节点（前10000 tokens），而不是等待它们进入viewport
-    let translatedCount = 0;
-    const totalNodesToTranslate = nodes.length;
+    // 准备所有节点数据（去重和过滤）
+    const nodeDataList: Array<{node: Element, nodeId: string, text: string}> = [];
     
-    nodes.forEach((node, index) => {
+    nodes.forEach((node) => {
         // 去重
         if (node.hasAttribute(TRANSLATED_ATTR)) return;
         
@@ -436,33 +474,70 @@ export function autoTranslateEnglishPage() {
         
         // 标记为已翻译
         node.setAttribute(TRANSLATED_ATTR, 'true');
-
-        // 添加小延迟，避免一次性发起过多请求，按批次翻译
-        // 每100个节点为一批，批次间延迟20ms（从batchDelay = Math.floor(index / 50) * 100优化）
-        const batchDelay = Math.floor(index / 100) * 20;
         
-        setTimeout(() => {
-            if (config.display === styles.bilingualTranslation) {
-                handleBilingualTranslation(node, false);
-            } else {
-                handleSingleTranslation(node, false);
-            }
-            
-            // 检查是否是最后一个节点，如果是则标记第一批翻译完成
-            if (index === totalNodesToTranslate - 1) {
-                // 延迟一点时间确保最后的翻译请求已发出
-                setTimeout(() => {
-                    firstBatchCompleted = true;
-                    console.log('[FluentRead] 第一批翻译任务已全部启动');
-                    startDwellTimeDetection(); // 启动停留检测
-                }, 500);
-            }
-        }, batchDelay);
-        
-        translatedCount++;
+        nodeDataList.push({
+            node,
+            nodeId,
+            text: node.textContent || ''
+        });
     });
     
-    console.log(`[FluentRead] 已启动${translatedCount}个节点的翻译任务`);
+    console.log(`[FluentRead] 过滤后需要翻译${nodeDataList.length}个节点`);
+    
+    if (nodeDataList.length === 0) {
+        console.log('[FluentRead] 没有需要翻译的节点');
+        return;
+    }
+    
+    // 收集所有文本
+    const textsToTranslate = nodeDataList.map(data => data.text);
+    
+    // 直接批量翻译所有文本，不经过窗口期队列
+    batchTranslateTexts(textsToTranslate, document.title)
+        .then(translatedTexts => {
+            console.log(`[FluentRead] 批量翻译完成，收到${translatedTexts.length}个结果`);
+            
+            // 更新DOM
+            nodeDataList.forEach((data, index) => {
+                const translatedText = translatedTexts[index];
+                if (!translatedText) {
+                    console.warn(`[FluentRead] 节点${index}翻译失败`);
+                    return;
+                }
+                
+                const { node } = data;
+                
+                if (config.display === styles.bilingualTranslation) {
+                    // 双语显示
+                    const originalHTML = node.innerHTML;
+                    const bilingualDiv = document.createElement('div');
+                    bilingualDiv.className = 'fluent-read-bilingual-content';
+                    bilingualDiv.innerHTML = translatedText;
+                    
+                    node.innerHTML = '';
+                    
+                    const originalDiv = document.createElement('div');
+                    originalDiv.className = 'fluent-read-original';
+                    originalDiv.innerHTML = originalHTML;
+                    
+                    node.appendChild(originalDiv);
+                    node.appendChild(bilingualDiv);
+                    node.classList.add('fluent-read-bilingual');
+                } else {
+                    // 单语显示
+                    node.textContent = translatedText;
+                }
+            });
+            
+            console.log(`[FluentRead] 全部翻译完成并更新到DOM`);
+            
+            // 标记第一批翻译完成
+            firstBatchCompleted = true;
+            startDwellTimeDetection(); // 启动停留检测
+        })
+        .catch(error => {
+            console.error('[FluentRead] 批量翻译失败:', error);
+        });
 
     // 创建 MutationObserver 监听 DOM 变化，直接翻译新增节点
     mutationObserver = new MutationObserver((mutations) => {
