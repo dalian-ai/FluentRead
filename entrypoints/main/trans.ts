@@ -23,7 +23,9 @@ const MAX_TRANSLATION_TOKENS = 10000;
 let dwellTimer: any = null;
 let hasDwellTranslated = false; // 防止重复触发
 let firstBatchCompleted = false; // 第一批翻译是否完成
+let rescanTimer: any = null; // 定期重新扫描计时器
 const DWELL_TIME_MS = 5000; // 停留5秒后触发批量翻译
+const RESCAN_INTERVAL_MS = 3000; // 每3秒重新扫描一次
 
 /**
  * 启动页面停留时间检测
@@ -60,32 +62,122 @@ export function stopDwellTimeDetection() {
 }
 
 /**
+ * 启动定期重新扫描，以捕获延迟加载的内容
+ */
+function startRescan() {
+    // 如果已经在扫描，先停止
+    if (rescanTimer) {
+        clearInterval(rescanTimer);
+    }
+    
+    let rescanCount = 0;
+    const maxRescans = 10; // 最多重新扫描10次（30秒）
+    
+    console.log('[FluentRead] 启动定期重新扫描以捕获延迟加载内容');
+    
+    rescanTimer = setInterval(() => {
+        rescanCount++;
+        console.log(`[FluentRead] 第${rescanCount}次重新扫描...`);
+        
+        // 重新扫描并翻译新内容
+        const allNodes = grabAllNode(document.body);
+        const untranslatedNodes = allNodes.filter(node => {
+            if (node.hasAttribute(TRANSLATED_ATTR)) return false;
+            
+            // 检查祖先是否已翻译
+            let ancestor = node.parentElement;
+            while (ancestor) {
+                if (ancestor.hasAttribute(TRANSLATED_ATTR)) {
+                    return false;
+                }
+                ancestor = ancestor.parentElement;
+            }
+            return true;
+        });
+        
+        if (untranslatedNodes.length > 0) {
+            console.log(`[FluentRead] 发现${untranslatedNodes.length}个新节点，开始翻译`);
+            
+            untranslatedNodes.forEach((node, index) => {
+                const nodeId = `fr-node-${nodeIdCounter++}`;
+                node.setAttribute(TRANSLATED_ID_ATTR, nodeId);
+                originalContents.set(nodeId, node.innerHTML);
+                node.setAttribute(TRANSLATED_ATTR, 'true');
+                
+                const batchDelay = Math.floor(index / 50) * 100;
+                setTimeout(() => {
+                    if (config.display === styles.bilingualTranslation) {
+                        handleBilingualTranslation(node, false);
+                    } else {
+                        handleSingleTranslation(node, false);
+                    }
+                }, batchDelay);
+            });
+        } else {
+            console.log(`[FluentRead] 未发现新节点`);
+        }
+        
+        // 达到最大扫描次数后停止
+        if (rescanCount >= maxRescans) {
+            console.log('[FluentRead] 达到最大重新扫描次数，停止扫描');
+            clearInterval(rescanTimer);
+            rescanTimer = null;
+        }
+    }, RESCAN_INTERVAL_MS);
+}
+
+/**
+ * 停止定期重新扫描
+ */
+function stopRescan() {
+    if (rescanTimer) {
+        clearInterval(rescanTimer);
+        rescanTimer = null;
+    }
+}
+
+/**
  * 批量翻译所有内容（不受10000 token限制）
  * 只翻译尚未翻译的节点
  */
 function batchTranslateAllContent() {
     // 获取所有需要翻译的节点
     const allNodes = grabAllNode(document.body);
+    console.log(`[FluentRead] grabAllNode 扫描到 ${allNodes.length} 个节点`);
+    
     if (!allNodes.length) return;
     
     // 只获取尚未翻译的节点
     const untranslatedNodes = allNodes.filter(node => !node.hasAttribute(TRANSLATED_ATTR));
     
-    if (!untranslatedNodes.length) {
+    // 进一步过滤掉祖先已翻译的节点
+    const nodesToTranslate = untranslatedNodes.filter(node => {
+        let ancestor = node.parentElement;
+        while (ancestor) {
+            if (ancestor.hasAttribute(TRANSLATED_ATTR)) {
+                return false;
+            }
+            ancestor = ancestor.parentElement;
+        }
+        return true;
+    });
+    
+    console.log(`[FluentRead] 未翻译节点: ${untranslatedNodes.length}, 过滤祖先后: ${nodesToTranslate.length}`);
+    
+    if (!nodesToTranslate.length) {
         console.log('[FluentRead] 所有内容已翻译完成');
+        // 启动定期重新扫描，以捕获延迟加载的内容
+        startRescan();
         return;
     }
     
-    const totalText = untranslatedNodes.map(n => n.textContent || '').join(' ');
+    const totalText = nodesToTranslate.map(n => n.textContent || '').join(' ');
     const totalTokens = estimateTokens(totalText);
-    console.log(`[FluentRead] 批量翻译剩余内容：${untranslatedNodes.length}个节点，估计约${totalTokens} tokens`);
+    console.log(`[FluentRead] 批量翻译剩余内容：${nodesToTranslate.length}个节点，估计约${totalTokens} tokens`);
     
     // 翻译剩余的所有节点
     let translatedCount = 0;
-    untranslatedNodes.forEach((node, index) => {
-        // 去重
-        if (node.hasAttribute(TRANSLATED_ATTR)) return;
-        
+    nodesToTranslate.forEach((node, index) => {
         // 为节点分配唯一ID
         const nodeId = `fr-node-${nodeIdCounter++}`;
         node.setAttribute(TRANSLATED_ID_ATTR, nodeId);
@@ -209,6 +301,7 @@ export function restoreOriginalContent() {
     hasDwellTranslated = false; // 重置停留翻译标记
     firstBatchCompleted = false; // 重置第一批完成标记
     stopDwellTimeDetection(); // 停止停留检测
+    stopRescan(); // 停止重新扫描
     htmlSet.clear(); // 清空防抖集合
     nodeIdCounter = 0; // 重置节点ID计数器
     
@@ -263,6 +356,18 @@ export function autoTranslateEnglishPage() {
         // 去重
         if (node.hasAttribute(TRANSLATED_ATTR)) return;
         
+        // 检查祖先节点是否已经被翻译，如果是则跳过
+        let ancestor = node.parentElement;
+        let hasTranslatedAncestor = false;
+        while (ancestor) {
+            if (ancestor.hasAttribute(TRANSLATED_ATTR)) {
+                hasTranslatedAncestor = true;
+                break;
+            }
+            ancestor = ancestor.parentElement;
+        }
+        if (hasTranslatedAncestor) return;
+        
         // 为节点分配唯一ID
         const nodeId = `fr-node-${nodeIdCounter++}`;
         node.setAttribute(TRANSLATED_ID_ATTR, nodeId);
@@ -300,7 +405,7 @@ export function autoTranslateEnglishPage() {
     
     console.log(`[FluentRead] 已启动${translatedCount}个节点的翻译任务`);
 
-    // 创建 MutationObserver 监听 DOM 变化
+    // 创建 MutationObserver 监听 DOM 变化，直接翻译新增节点
     mutationObserver = new MutationObserver((mutations) => {
         if (!isAutoTranslating) return;
         
@@ -311,7 +416,38 @@ export function autoTranslateEnglishPage() {
                     const newNodes = grabAllNode(node as Element).filter(
                         n => !n.hasAttribute(TRANSLATED_ATTR)
                     );
-                    newNodes.forEach(n => observer?.observe(n));
+                    
+                    // 直接翻译新节点，不使用IntersectionObserver
+                    newNodes.forEach(n => {
+                        // 检查祖先节点是否已经被翻译
+                        let ancestor = n.parentElement;
+                        let hasTranslatedAncestor = false;
+                        while (ancestor) {
+                            if (ancestor.hasAttribute(TRANSLATED_ATTR)) {
+                                hasTranslatedAncestor = true;
+                                break;
+                            }
+                            ancestor = ancestor.parentElement;
+                        }
+                        if (hasTranslatedAncestor) return;
+                        
+                        // 为节点分配唯一ID
+                        const nodeId = `fr-node-${nodeIdCounter++}`;
+                        n.setAttribute(TRANSLATED_ID_ATTR, nodeId);
+                        
+                        // 保存原始内容
+                        originalContents.set(nodeId, n.innerHTML);
+                        
+                        // 标记为已翻译
+                        n.setAttribute(TRANSLATED_ATTR, 'true');
+                        
+                        // 立即翻译
+                        if (config.display === styles.bilingualTranslation) {
+                            handleBilingualTranslation(n, false);
+                        } else {
+                            handleSingleTranslation(n, false);
+                        }
+                    });
                 }
             });
         });

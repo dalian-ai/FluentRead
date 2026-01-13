@@ -18,7 +18,15 @@ async function custom(message: any) {
 
     if (resp.ok) {
         let result = await resp.json();
-        return  contentPostHandler(result.choices[0].message.content);
+        const content = result.choices?.[0]?.message?.content;
+        
+        if (content === undefined || content === null) {
+            console.error('[custom] API返回的content为null/undefined:', result);
+            throw new Error('API返回的内容为空');
+        }
+        
+        const contentStr = typeof content === 'string' ? content : String(content);
+        return contentPostHandler(contentStr);
     } else {
         console.log("翻译失败：", resp);
         throw new Error(`翻译失败: ${resp.status} ${resp.statusText} body: ${await resp.text()}`);

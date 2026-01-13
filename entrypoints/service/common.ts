@@ -32,7 +32,16 @@ async function common(message: any) {
         }
 
         const result = await resp.json();
-        return contentPostHandler(result.choices[0].message.content);
+        const content = result.choices?.[0]?.message?.content;
+        
+        if (content === undefined || content === null) {
+            console.error('[common] API返回的content为null/undefined:', result);
+            throw new Error('API返回的内容为空');
+        }
+        
+        // 确保content是字符串
+        const contentStr = typeof content === 'string' ? content : String(content);
+        return contentPostHandler(contentStr);
     } catch (error) {
         console.error('API调用失败:', error);
         throw error;

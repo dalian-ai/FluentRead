@@ -224,6 +224,18 @@ async function translateBatchNormal(tasks: BatchTask[]) {
 function parseBatchResult(result: string, expectedCount: number): string[] {
   const results: string[] = [];
   
+  // 确保result是字符串
+  if (typeof result !== 'string') {
+    console.error('[批量翻译] 翻译结果不是字符串:', typeof result, result);
+    // 尝试转换为字符串
+    try {
+      result = String(result);
+    } catch (e) {
+      console.error('[批量翻译] 无法转换为字符串:', e);
+      return new Array(expectedCount).fill('');
+    }
+  }
+  
   // 尝试按序号分割
   const pattern = /\[(\d+)\]\s*([\s\S]*?)(?=\n*\[\d+\]|$)/g;
   let match;
