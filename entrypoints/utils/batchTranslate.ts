@@ -23,8 +23,9 @@ let isProcessing = false; // 标记是否正在处理批次
 
 // 配置参数
 const BATCH_WINDOW_MS = 50;       // 批处理窗口时间（毫秒）- 从300ms减少到50ms提高响应速度
-const MAX_TOKENS_PER_BATCH = 10000; // 每批最大tokens数 - 增加到10000减少批次数
+const MAX_TOKENS_PER_BATCH = 7000; // 每批最大tokens数 - 与deepseek API限制保持一致
 const MIN_BATCH_SIZE = 3;          // 最小批处理数量（小于此数量不进行批处理）
+const MAX_CONCURRENT_BATCHES = 8;  // 最大并发批次数 - 避免同时发送过多请求
 
 /**
  * 粗略估算文本的token数量
@@ -423,7 +424,7 @@ export async function batchTranslateTexts(texts: string[], context: string = doc
   
   // 按token限制分组
   const groups = groupTasks(uncachedTasks);
-  console.log(`[直接批量翻译] 分为 ${groups.length} 个批次并行翻译`);
+  console.log(`[直接批量翻译] 分为 ${groups.length} 个批次，最大并发${MAX_CONCURRENT_BATCHES}`);
   
   // 存储每个任务的Promise
   const taskPromises: Promise<string>[] = uncachedTasks.map(() => 
@@ -438,23 +439,50 @@ export async function batchTranslateTexts(texts: string[], context: string = doc
     });
   });
   
-  // 并行处理所有批次
-  await Promise.all(groups.map(async (group) => {
-    try {
-      await translateBatch(group);
-    } catch (error) {
-      console.warn('[直接批量翻译] 批次翻译失败，回退到单独翻译:', error);
-      // 失败时逐个翻译
-      for (const task of group) {
+  // 使用滑动窗口并发控制 - 任务完成后立即启动下一个
+  let currentIndex = 0;
+  const executing: Promise<void>[] = [];
+  
+  while (currentIndex < groups.length || executing.length > 0) {
+    // 启动新任务直到达到并发限制
+    while (currentIndex < groups.length && executing.length < MAX_CONCURRENT_BATCHES) {
+      const groupIndex = currentIndex++;
+      const group = groups[groupIndex];
+      
+      const promise = (async () => {
+        console.log(`[直接批量翻译] 开始批次 ${groupIndex + 1}/${groups.length}`);
         try {
-          const result = await translateSingle(task.origin, task.context);
-          task.resolve(result);
-        } catch (err) {
-          task.reject(err);
+          await translateBatch(group);
+          console.log(`[直接批量翻译] 完成批次 ${groupIndex + 1}/${groups.length}`);
+        } catch (error) {
+          console.warn(`[直接批量翻译] 批次 ${groupIndex + 1} 翻译失败，回退到单独翻译:`, error);
+          // 失败时逐个翻译
+          for (const task of group) {
+            try {
+              const result = await translateSingle(task.origin, task.context);
+              task.resolve(result);
+            } catch (err) {
+              task.reject(err);
+            }
+          }
         }
-      }
+      })();
+      
+      executing.push(promise);
+      
+      // 任务完成后从执行列表中移除
+      promise.then(() => {
+        executing.splice(executing.indexOf(promise), 1);
+      }).catch(() => {
+        executing.splice(executing.indexOf(promise), 1);
+      });
     }
-  }));
+    
+    // 等待至少一个任务完成
+    if (executing.length > 0) {
+      await Promise.race(executing);
+    }
+  }
   
   // 等待所有翻译完成并填充结果
   const translatedResults = await Promise.all(taskPromises);

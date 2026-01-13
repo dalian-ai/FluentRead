@@ -17,8 +17,8 @@ let isAutoTranslating = false; // 控制是否继续翻译新内容
 let observer: IntersectionObserver | null = null; // 保存观察器实例
 let mutationObserver: MutationObserver | null = null; // 保存 DOM 变化观察器实例
 
-// 全文翻译的token限制
-const MAX_TRANSLATION_TOKENS = 10000;
+// 全文翻译的token限制（与后台API限制保持一致）
+const MAX_TRANSLATION_TOKENS = 7000;
 
 // 页面停留时间检测
 let dwellTimer: any = null;
@@ -434,7 +434,7 @@ export function autoTranslateEnglishPage() {
     const totalTokens = estimateTokens(totalText);
     console.log(`[FluentRead] 全文共${allNodes.length}个节点，估计约${totalTokens} tokens`);
 
-    // 如果超过10000 tokens，则截断
+    // 如果超过7000 tokens，则截断
     let nodes = allNodes;
     if (totalTokens > MAX_TRANSLATION_TOKENS) {
         console.log(`[FluentRead] 全文超过${MAX_TRANSLATION_TOKENS} tokens限制，将只翻译前${MAX_TRANSLATION_TOKENS} tokens`);
