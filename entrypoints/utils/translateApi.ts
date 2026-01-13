@@ -30,6 +30,7 @@ export async function translateText(origin: string, context: string = document.t
     timeout = 45000,
     useCache = config.useCache,
     useBatch = config.useBatchTranslate ?? true, // 默认启用批量翻译
+    immediateFlush = false, // 立即处理，不等待批处理窗口
   } = options;
 
   // 如果目标语言与当前文本语言相同，直接返回原文
@@ -64,7 +65,7 @@ export async function translateText(origin: string, context: string = document.t
   // 如果启用批量翻译，使用批处理管道
   if (useBatch) {
     return enqueueTranslation(async () => {
-      return batchTranslate(cleanedOrigin, context);
+      return batchTranslate(cleanedOrigin, context, immediateFlush);
     });
   }
 

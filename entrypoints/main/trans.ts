@@ -615,8 +615,8 @@ function bilingualTranslate(node: any, nodeOuterHTML: any) {
     let origin = node.textContent;
     let spinner = insertLoadingSpinner(node);
     
-    // 使用队列管理的翻译API
-    translateText(origin, document.title)
+    // 使用队列管理的翻译API，全文翻译时立即处理
+    translateText(origin, document.title, { immediateFlush: isAutoTranslating })
         .then((text: any) => {
             spinner.remove();
             htmlSet.delete(nodeOuterHTML);
@@ -647,8 +647,8 @@ export function singleTranslate(node: any) {
     let origin = servicesType.isMachine(config.service) ? node.innerHTML : LLMStandardHTML(node);
     let spinner = insertLoadingSpinner(node);
     
-    // 使用队列管理的翻译API
-    translateText(origin, document.title)
+    // 使用队列管理的翻译API，全文翻译时立即处理
+    translateText(origin, document.title, { immediateFlush: isAutoTranslating })
         .then((text: any) => {
             spinner.remove();
             

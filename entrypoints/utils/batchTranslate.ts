@@ -308,7 +308,7 @@ async function translateSingle(origin: string, context: string): Promise<string>
 /**
  * 添加翻译任务到批处理队列
  */
-export function batchTranslate(origin: string, context: string = document.title): Promise<string> {
+export function batchTranslate(origin: string, context: string = document.title, immediateFlush: boolean = false): Promise<string> {
   return new Promise((resolve, reject) => {
     // 检查缓存
     if (config.useCache) {
@@ -328,6 +328,16 @@ export function batchTranslate(origin: string, context: string = document.title)
       timestamp: Date.now()
     });
     
+    // 如果是立即处理模式，直接处理不等待
+    if (immediateFlush) {
+      if (batchTimer) {
+        clearTimeout(batchTimer);
+        batchTimer = null;
+      }
+      processBatch();
+      return;
+    }
+    
     // 设置批处理定时器
     if (batchTimer) {
       clearTimeout(batchTimer);
@@ -335,7 +345,6 @@ export function batchTranslate(origin: string, context: string = document.title)
     
     batchTimer = setTimeout(() => {
       processBatch();
-      batchTimer = null;
     }, BATCH_WINDOW_MS);
   });
 }
