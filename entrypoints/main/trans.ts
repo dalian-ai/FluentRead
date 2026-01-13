@@ -18,7 +18,7 @@ let observer: IntersectionObserver | null = null; // 保存观察器实例
 let mutationObserver: MutationObserver | null = null; // 保存 DOM 变化观察器实例
 
 // 全文翻译的token限制（与后台API限制保持一致）
-const MAX_TRANSLATION_TOKENS = 7000;
+const MAX_TRANSLATION_TOKENS = 4000;
 
 // 页面停留时间检测
 let dwellTimer: any = null;

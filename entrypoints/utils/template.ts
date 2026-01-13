@@ -14,9 +14,11 @@ export function commonMsgTemplate(origin: string, isBatch: boolean = false) {
     let user: string;
     
     if (isBatch) {
-        // 批量翻译模式：使用更简洁的提示词
-        user = `翻译成${config.to}，保持序号格式[1][2][3]，段间空行分隔，仅返回译文：
+        // 批量翻译模式：使用JSON格式确保准确映射
+        user = `翻译以下文本到${config.to}，严格按JSON格式返回，不要添加任何其他内容：
+{"translations":[{"index":1,"text":"译文1"},{"index":2,"text":"译文2"}]}
 
+待翻译内容：
 ${origin}`;
     } else {
         // 单独翻译模式：使用原有的用户提示词
@@ -46,9 +48,11 @@ export function deepseekMsgTemplate(origin: string, isBatch: boolean = false) {
     let user: string;
     
     if (isBatch) {
-        // 批量翻译模式：使用更简洁的提示词
-        user = `翻译成${config.to}，保持序号格式[1][2][3]，段间空行分隔，仅返回译文：
+        // 批量翻译模式：使用JSON格式确保准确映射
+        user = `翻译以下文本到${config.to}，严格按JSON格式返回，不要添加任何其他内容：
+{"translations":[{"index":1,"text":"译文1"},{"index":2,"text":"译文2"}]}
 
+待翻译内容：
 ${origin}`;
     } else {
         // 单独翻译模式

@@ -23,7 +23,7 @@ let isProcessing = false; // 标记是否正在处理批次
 
 // 配置参数
 const BATCH_WINDOW_MS = 50;       // 批处理窗口时间（毫秒）- 从300ms减少到50ms提高响应速度
-const MAX_TOKENS_PER_BATCH = 7000; // 每批最大tokens数 - 与deepseek API限制保持一致
+const MAX_TOKENS_PER_BATCH = 4000; // 每批最大tokens数 - 与deepseek API限制保持一致
 const MIN_BATCH_SIZE = 3;          // 最小批处理数量（小于此数量不进行批处理）
 const MAX_CONCURRENT_BATCHES = 8;  // 最大并发批次数 - 避免同时发送过多请求
 
@@ -179,6 +179,12 @@ async function translateBatch(tasks: BatchTask[]) {
     count: uniqueTasksList.length
   }) as string;
   
+  // 确保result是字符串
+  if (typeof result !== 'string') {
+    console.error('[批量翻译] API返回结果不是字符串:', typeof result, result);
+    throw new Error('API返回结果类型错误');
+  }
+  
   // 解析批量翻译结果
   const results = parseBatchResult(result, uniqueTasksList.length);
   
@@ -222,7 +228,13 @@ async function translateBatchNormal(tasks: BatchTask[]) {
     count: tasks.length
   }) as string;
   
-  console.log('[批量翻译] 收到翻译结果，长度:', result?.length, '预览:', result?.substring(0, 200));
+  // 确保result是字符串
+  if (typeof result !== 'string') {
+    console.error('[批量翻译] API返回结果不是字符串:', typeof result, result);
+    result = JSON.stringify(result);
+  }
+  
+  console.log('[批量翻译] 收到翻译结果，长度:', result.length, '预览:', result.substring(0, 200));
   
   // 解析批量翻译结果
   const results = parseBatchResult(result, tasks.length);
@@ -256,15 +268,13 @@ async function translateBatchNormal(tasks: BatchTask[]) {
 
 /**
  * 解析批量翻译结果
- * 期望格式：[1] 翻译结果1\n\n[2] 翻译结果2\n\n...
+ * 期望格式：JSON {"translations":[{"index":1,"text":"译文1"}]}
+ * 回退格式：[1] 翻译结果1\n\n[2] 翻译结果2\n\n...
  */
 function parseBatchResult(result: string, expectedCount: number): string[] {
-  const results: string[] = [];
-  
   // 确保result是字符串
   if (typeof result !== 'string') {
     console.error('[批量翻译] 翻译结果不是字符串:', typeof result, result);
-    // 尝试转换为字符串
     try {
       result = String(result);
     } catch (e) {
@@ -275,22 +285,56 @@ function parseBatchResult(result: string, expectedCount: number): string[] {
   
   console.log('[parseBatchResult] 开始解析，期望数量:', expectedCount, '结果长度:', result.length);
   
-  // 尝试按序号分割
-  const pattern = /\[(\d+)\]\s*([\s\S]*?)(?=\n*\[\d+\]|$)/g;
+  // 首先尝试JSON格式解析
+  try {
+    // 提取JSON部分（可能包含markdown代码块）
+    let jsonStr = result.trim();
+    
+    // 移除可能的markdown代码块标记
+    jsonStr = jsonStr.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
+    jsonStr = jsonStr.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    
+    const parsed = JSON.parse(jsonStr);
+    
+    if (parsed.translations && Array.isArray(parsed.translations)) {
+      const results: string[] = new Array(expectedCount).fill('');
+      
+      parsed.translations.forEach((item: any) => {
+        if (item.index && item.text !== undefined && item.text !== null) {
+          const index = parseInt(item.index) - 1;
+          if (index >= 0 && index < expectedCount) {
+            // 确保text是字符串
+            results[index] = typeof item.text === 'string' ? item.text : String(item.text);
+          }
+        }
+      });
+      
+      console.log('[parseBatchResult] JSON格式解析成功，解析到', parsed.translations.length, '个结果');
+      return results;
+    }
+  } catch (e) {
+    console.warn('[parseBatchResult] JSON解析失败，尝试文本格式:', e);
+  }
+  
+  // 回退：尝试按序号分割 - 匹配行首的 [数字]
+  const results: string[] = [];
+  const pattern = /^\[(\d+)\]\s*([\s\S]*?)(?=\n\s*\[\d+\]|\s*$)/gm;
   let match;
   
   while ((match = pattern.exec(result)) !== null) {
     const index = parseInt(match[1]) - 1;
-    const text = match[2].trim();
+    let text = match[2].trim();
+    text = text.replace(/^\[\d+\]\s*/, '');
     results[index] = text;
   }
   
   console.log('[parseBatchResult] 按序号解析到', results.length, '个结果');
   
-  // 如果解析失败，尝试按空行分割
+  // 如果仍然解析失败，尝试按空行分割
   if (results.length !== expectedCount) {
     console.warn('[批量翻译] 按序号解析失败，尝试按空行分割');
-    const parts = result.split(/\n\s*\n/).map(s => s.trim()).filter(s => s.length > 0);
+    let parts = result.split(/\n\s*\n/).map(s => s.trim()).filter(s => s.length > 0);
+    parts = parts.map(part => part.replace(/^\[\d+\]\s*/, ''));
     console.log('[parseBatchResult] 按空行解析到', parts.length, '个结果');
     return parts.slice(0, expectedCount);
   }
