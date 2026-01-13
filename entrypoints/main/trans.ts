@@ -79,8 +79,12 @@ function startRescan() {
         rescanCount++;
         console.log(`[FluentRead] 第${rescanCount}次重新扫描...`);
         
-        // 重新扫描并翻译新内容
-        const allNodes = grabAllNode(document.body);
+        // 使用两种方法重新扫描
+        const nodesOld = grabAllNode(document.body);
+        const nodesNew = grabAllTextElements(document.body);
+        const allNodesSet = new Set([...nodesOld, ...nodesNew]);
+        const allNodes = Array.from(allNodesSet);
+        
         const untranslatedNodes = allNodes.filter(node => {
             if (node.hasAttribute(TRANSLATED_ATTR)) return false;
             
@@ -104,7 +108,7 @@ function startRescan() {
                 originalContents.set(nodeId, node.innerHTML);
                 node.setAttribute(TRANSLATED_ATTR, 'true');
                 
-                const batchDelay = Math.floor(index / 50) * 100;
+                const batchDelay = Math.floor(index / 100) * 20;
                 setTimeout(() => {
                     if (config.display === styles.bilingualTranslation) {
                         handleBilingualTranslation(node, false);
@@ -137,13 +141,68 @@ function stopRescan() {
 }
 
 /**
+ * 更激进地获取所有包含文本的元素
+ * 用于批量翻译时确保不遗漏内容
+ */
+function grabAllTextElements(root: Node): Element[] {
+    if (!root || !(root instanceof Element)) return [];
+    
+    const result: Element[] = [];
+    const skipTags = new Set(['script', 'style', 'noscript', 'iframe', 'code', 'pre', 'svg']);
+    
+    // 递归遍历所有元素
+    function traverse(element: Element) {
+        const tag = element.tagName?.toLowerCase();
+        
+        // 跳过不需要翻译的标签
+        if (skipTags.has(tag)) return;
+        if (element.classList?.contains('notranslate')) return;
+        if (element.classList?.contains('sr-only')) return;
+        
+        // 检查是否有直接的文本内容（不包括子元素的文本）
+        let hasDirectText = false;
+        for (const child of element.childNodes) {
+            if (child.nodeType === Node.TEXT_NODE && child.textContent?.trim()) {
+                hasDirectText = true;
+                break;
+            }
+        }
+        
+        // 如果有直接文本，尝试获取翻译节点
+        if (hasDirectText) {
+            const node = grabNode(element);
+            if (node && !result.includes(node)) {
+                result.push(node);
+            }
+        }
+        
+        // 继续遍历子元素
+        for (const child of element.children) {
+            traverse(child);
+        }
+    }
+    
+    traverse(root as Element);
+    return result;
+}
+
+/**
  * 批量翻译所有内容（不受10000 token限制）
  * 只翻译尚未翻译的节点
  */
 function batchTranslateAllContent() {
-    // 获取所有需要翻译的节点
-    const allNodes = grabAllNode(document.body);
-    console.log(`[FluentRead] grabAllNode 扫描到 ${allNodes.length} 个节点`);
+    // 先尝试用原来的方法获取节点
+    const allNodesOld = grabAllNode(document.body);
+    console.log(`[FluentRead] grabAllNode 扫描到 ${allNodesOld.length} 个节点`);
+    
+    // 同时用更激进的方法获取所有可能的文本节点
+    const allNodesNew = grabAllTextElements(document.body);
+    console.log(`[FluentRead] grabAllTextElements 扫描到 ${allNodesNew.length} 个节点`);
+    
+    // 合并两个结果并去重
+    const allNodesSet = new Set([...allNodesOld, ...allNodesNew]);
+    const allNodes = Array.from(allNodesSet);
+    console.log(`[FluentRead] 合并去重后共 ${allNodes.length} 个节点`);
     
     if (!allNodes.length) return;
     
@@ -188,8 +247,8 @@ function batchTranslateAllContent() {
         // 标记为已翻译
         node.setAttribute(TRANSLATED_ATTR, 'true');
         
-        // 分批处理，每50个节点为一批，批次间延迟100ms
-        const batchDelay = Math.floor(index / 50) * 100;
+        // 分批处理，每100个节点为一批，批次间延迟20ms
+        const batchDelay = Math.floor(index / 100) * 20;
         
         setTimeout(() => {
             if (config.display === styles.bilingualTranslation) {
@@ -379,8 +438,8 @@ export function autoTranslateEnglishPage() {
         node.setAttribute(TRANSLATED_ATTR, 'true');
 
         // 添加小延迟，避免一次性发起过多请求，按批次翻译
-        // 每50个节点为一批，批次间延迟100ms
-        const batchDelay = Math.floor(index / 50) * 100;
+        // 每100个节点为一批，批次间延迟20ms（从batchDelay = Math.floor(index / 50) * 100优化）
+        const batchDelay = Math.floor(index / 100) * 20;
         
         setTimeout(() => {
             if (config.display === styles.bilingualTranslation) {
@@ -558,9 +617,21 @@ function bilingualTranslate(node: any, nodeOuterHTML: any) {
     
     // 使用队列管理的翻译API
     translateText(origin, document.title)
-        .then((text: string) => {
+        .then((text: any) => {
             spinner.remove();
             htmlSet.delete(nodeOuterHTML);
+            
+            // 确保text是字符串
+            if (typeof text !== 'string') {
+                console.error('[bilingualTranslate] 翻译结果不是字符串:', typeof text, text);
+                text = String(text);
+            }
+            
+            // 检查翻译结果是否与原文相同
+            if (text === origin) {
+                console.warn('[bilingualTranslate] 翻译结果与原文相同，原文:', origin.substring(0, 100));
+            }
+            
             bilingualAppendChild(node, text);
         })
         .catch((error: Error) => {
@@ -578,8 +649,14 @@ export function singleTranslate(node: any) {
     
     // 使用队列管理的翻译API
     translateText(origin, document.title)
-        .then((text: string) => {
+        .then((text: any) => {
             spinner.remove();
+            
+            // 确保text是字符串
+            if (typeof text !== 'string') {
+                console.error('[singleTranslate] 翻译结果不是字符串:', typeof text, text);
+                text = String(text);
+            }
             
             text = beautyHTML(text);
             
@@ -619,6 +696,12 @@ export const handleBtnTranslation = throttle((node: any) => {
 
 
 function bilingualAppendChild(node: any, text: string) {
+    // 确保text是字符串
+    if (typeof text !== 'string') {
+        console.error('[bilingualAppendChild] text不是字符串:', typeof text, text);
+        text = String(text);
+    }
+    
     node.classList.add("fluent-read-bilingual");
     let newNode = document.createElement("span");
     newNode.classList.add("fluent-read-bilingual-content");
@@ -627,7 +710,7 @@ function bilingualAppendChild(node: any, text: string) {
     if (style?.class) {
         newNode.classList.add(style.class);
     }
-    newNode.append(text);
+    newNode.textContent = text; // 使用textContent而不append，更安全
     smashTruncationStyle(node);
     node.appendChild(newNode);
 }

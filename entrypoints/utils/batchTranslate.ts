@@ -21,8 +21,8 @@ let batchQueue: BatchTask[] = [];
 let batchTimer: any = null;
 
 // 配置参数
-const BATCH_WINDOW_MS = 300;      // 批处理窗口时间（毫秒）
-const MAX_TOKENS_PER_BATCH = 7000; // 每批最大tokens数（粗略估算：1中文字符≈2tokens，1英文单词≈1.3tokens）
+const BATCH_WINDOW_MS = 50;       // 批处理窗口时间（毫秒）- 从300ms减少到50ms提高响应速度
+const MAX_TOKENS_PER_BATCH = 10000; // 每批最大tokens数 - 增加到10000减少批次数
 const MIN_BATCH_SIZE = 3;          // 最小批处理数量（小于此数量不进行批处理）
 
 /**
@@ -104,10 +104,13 @@ async function processBatch() {
     return;
   }
   
-  // 分组处理
+  // 分组处理 - 并行处理所有批次以提高速度
   const groups = groupTasks(tasks);
   
-  for (const group of groups) {
+  console.log(`[批量翻译] 分为${groups.length}个批次并行处理`);
+  
+  // 并行处理所有批次
+  await Promise.all(groups.map(async (group) => {
     try {
       await translateBatch(group);
     } catch (error) {
@@ -122,7 +125,7 @@ async function processBatch() {
         }
       }
     }
-  }
+  }));
 }
 
 /**
@@ -170,8 +173,14 @@ async function translateBatch(tasks: BatchTask[]) {
   
   // 分发结果到所有相关任务（包括重复的）
   for (let i = 0; i < uniqueTasksList.length; i++) {
-    const translatedText = results[i] || uniqueTasksList[i].origin;
+    let translatedText = results[i] || uniqueTasksList[i].origin;
     const originalIndices = (uniqueTasksList[i] as any).originalIndices;
+    
+    // 确保translatedText是字符串
+    if (typeof translatedText !== 'string') {
+      console.error('[translateBatch] 翻译结果不是字符串:', typeof translatedText, translatedText);
+      translatedText = String(translatedText);
+    }
     
     // 缓存一次
     if (config.useCache) {
@@ -192,6 +201,8 @@ async function translateBatchNormal(tasks: BatchTask[]) {
   // 构建批量翻译的提示词（文本已在 translateApi 中清理过）
   const origins = tasks.map((task, index) => `[${index + 1}] ${task.origin}`).join('\n\n');
   
+  console.log('[批量翻译] 发送批量翻译请求，任务数:', tasks.length);
+  
   // 发送批量翻译请求
   const result = await browser.runtime.sendMessage({
     type: 'batch_translate',
@@ -200,13 +211,28 @@ async function translateBatchNormal(tasks: BatchTask[]) {
     count: tasks.length
   }) as string;
   
+  console.log('[批量翻译] 收到翻译结果，长度:', result?.length, '预览:', result?.substring(0, 200));
+  
   // 解析批量翻译结果
   const results = parseBatchResult(result, tasks.length);
+  
+  console.log('[批量翻译] 解析后结果数:', results.length);
   
   // 分发结果到各个任务
   for (let i = 0; i < tasks.length; i++) {
     const task = tasks[i];
-    const translatedText = results[i] || task.origin; // 如果解析失败，返回原文
+    let translatedText = results[i] || task.origin; // 如果解析失败，返回原文
+    
+    // 确保translatedText是字符串
+    if (typeof translatedText !== 'string') {
+      console.error('[translateBatchNormal] 翻译结果不是字符串:', typeof translatedText, translatedText);
+      translatedText = String(translatedText);
+    }
+    
+    // 检查是否与原文相同
+    if (translatedText === task.origin) {
+      console.warn('[批量翻译] 任务', i + 1, '翻译结果与原文相同，原文:', task.origin.substring(0, 50));
+    }
     
     // 缓存结果
     if (config.useCache) {
@@ -236,6 +262,8 @@ function parseBatchResult(result: string, expectedCount: number): string[] {
     }
   }
   
+  console.log('[parseBatchResult] 开始解析，期望数量:', expectedCount, '结果长度:', result.length);
+  
   // 尝试按序号分割
   const pattern = /\[(\d+)\]\s*([\s\S]*?)(?=\n*\[\d+\]|$)/g;
   let match;
@@ -246,10 +274,13 @@ function parseBatchResult(result: string, expectedCount: number): string[] {
     results[index] = text;
   }
   
+  console.log('[parseBatchResult] 按序号解析到', results.length, '个结果');
+  
   // 如果解析失败，尝试按空行分割
   if (results.length !== expectedCount) {
     console.warn('[批量翻译] 按序号解析失败，尝试按空行分割');
     const parts = result.split(/\n\s*\n/).map(s => s.trim()).filter(s => s.length > 0);
+    console.log('[parseBatchResult] 按空行解析到', parts.length, '个结果');
     return parts.slice(0, expectedCount);
   }
   
@@ -263,7 +294,13 @@ async function translateSingle(origin: string, context: string): Promise<string>
   const result = await browser.runtime.sendMessage({
     context,
     origin
-  }) as string;
+  });
+  
+  // 确保返回字符串
+  if (typeof result !== 'string') {
+    console.error('[translateSingle] 返回值不是字符串:', typeof result, result);
+    return String(result);
+  }
   
   return result;
 }
