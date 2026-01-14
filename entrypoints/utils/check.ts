@@ -76,6 +76,23 @@ export function searchClassName(node: Node, className: string): Node | null {
     return null;
 }
 
+/**
+ * 验证文本是否有效（非空且有意义）
+ * @param text 待验证的文本
+ * @returns 文本是否有效
+ */
+export function isValidText(text: string): boolean {
+  if (!text || typeof text !== 'string') return false;
+  
+  // 去除空白后检查长度
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return false;
+  
+  // 检查是否只包含标点符号、数字、空白字符
+  const hasValidContent = /[a-zA-Z\u4e00-\u9fa5]/.test(trimmed);
+  return hasValidContent;
+}
+
 export function contentPostHandler(text: string) {
     // 1. 替换掉<think>与</think>之间的内容（支持多个think标签）
     let content = text;

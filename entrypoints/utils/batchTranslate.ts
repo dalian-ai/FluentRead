@@ -7,6 +7,7 @@ import browser from 'webextension-polyfill';
 import { config } from './config';
 import { cache } from './cache';
 import { parseBatchTranslations } from './jsonParser';
+import { isValidText } from './check';
 
 // 批处理任务接口
 interface BatchTask {
@@ -208,9 +209,23 @@ async function processBatch() {
   
   isProcessing = true;
   
-  // 获取当前队列的所有任务
-  const tasks = [...batchQueue];
+  // 获取当前队列的所有任务，并过滤掉无效任务
+  const allTasks = [...batchQueue];
   batchQueue = [];
+  
+  // 过滤无效任务（虽然在添加时已检查，但双重保险）
+  const invalidTasks = allTasks.filter(task => !isValidText(task.origin));
+  if (invalidTasks.length > 0) {
+    console.warn(`[批量翻译] 过滤掉 ${invalidTasks.length} 个无效任务`);
+    invalidTasks.forEach(task => task.resolve(task.origin));
+  }
+  
+  const tasks = allTasks.filter(task => isValidText(task.origin));
+  
+  if (tasks.length === 0) {
+    isProcessing = false;
+    return;
+  }
   
   try {
     // 如果任务数量少于最小批处理数量，逐个处理
@@ -439,6 +454,13 @@ async function translateSingle(origin: string, context: string): Promise<string>
  */
 export function batchTranslate(origin: string, context: string = document.title): Promise<string> {
   return new Promise((resolve, reject) => {
+    // 验证文本有效性
+    if (!isValidText(origin)) {
+      console.warn('[批量翻译] 跳过无效文本:', origin);
+      resolve(origin); // 返回原文
+      return;
+    }
+    
     // 检查缓存
     if (config.useCache) {
       const cachedResult = cache.localGet(origin);
@@ -508,7 +530,18 @@ export function flushBatchQueue() {
 export async function batchTranslateTexts(texts: string[], context: string = document.title): Promise<string[]> {
   console.log(`[直接批量翻译] 开始翻译 ${texts.length} 个文本`);
   
-  // 创建任务数组
+  // 先验证和过滤文本
+  const validationResults = texts.map(text => ({
+    isValid: isValidText(text),
+    text
+  }));
+  
+  const invalidCount = validationResults.filter(r => !r.isValid).length;
+  if (invalidCount > 0) {
+    console.warn(`[直接批量翻译] 发现 ${invalidCount} 个无效文本，将跳过翻译`);
+  }
+  
+  // 创建任务数组（只包含有效文本）
   const tasks: BatchTask[] = texts.map((text, index) => ({
     origin: text,
     context,
@@ -517,12 +550,18 @@ export async function batchTranslateTexts(texts: string[], context: string = doc
     timestamp: Date.now()
   }));
   
-  // 检查缓存
+  // 检查缓存和文本有效性
   const results: (string | null)[] = new Array(texts.length).fill(null);
   const uncachedTasks: BatchTask[] = [];
   const uncachedIndices: number[] = [];
   
   for (let i = 0; i < tasks.length; i++) {
+    // 如果文本无效，直接返回原文
+    if (!validationResults[i].isValid) {
+      results[i] = texts[i];
+      continue;
+    }
+    
     if (config.useCache) {
       const cached = cache.localGet(texts[i]);
       if (cached) {
