@@ -2,11 +2,11 @@ import { services } from "./option";
 
 // 常量工具类
 export const urls: any = {
-    [services.custom]: "https://text-to-image-cf.dal.workers.dev/v1/chat/completions",  // 修改为 http:// 以支持本地 Ollama
-    [services.zhipu]: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-    [services.deepseek]: "https://api.deepseek.com/chat/completions",
-    [services.siliconCloud]: "https://api.siliconflow.cn/v1/chat/completions",
-    [services.openrouter]: "https://openrouter.ai/api/v1/chat/completions",
+    [services.custom]: "https://text-to-image-cf.dal.workers.dev/v1",  // OpenAI SDK 会自动添加 /chat/completions
+    [services.zhipu]: "https://open.bigmodel.cn/api/paas/v4",
+    [services.deepseek]: "https://api.deepseek.com",
+    [services.siliconCloud]: "https://api.siliconflow.cn/v1",
+    [services.openrouter]: "https://openrouter.ai/api/v1",
 }
 
 export const method = {POST: "POST", GET: "GET",};

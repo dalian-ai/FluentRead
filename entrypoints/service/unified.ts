@@ -10,6 +10,36 @@ import { services } from '../utils/option';
 import { contentPostHandler } from '@/entrypoints/utils/check';
 
 /**
+ * 将文本格式的批量翻译结果转换为 JSON 格式
+ * 输入格式: [1] 译文1\n\n[2] 译文2\n\n...
+ * 输出格式: {"translations": [{"index": 1, "text": "译文1"}, ...]}
+ */
+function convertTextToJsonFormat(text: string): string {
+    try {
+        // 匹配 [数字] 内容 的模式
+        const pattern = /\[(\d+)\]\s*([^\[]+?)(?=\n\s*\[|$)/gs;
+        const matches = [...text.matchAll(pattern)];
+        
+        if (matches.length === 0) {
+            console.warn('[unified] 无法解析文本格式的批量翻译结果，返回原文');
+            return text;
+        }
+        
+        const translations = matches.map(match => ({
+            index: parseInt(match[1]),
+            text: match[2].trim()
+        }));
+        
+        const result = JSON.stringify({ translations });
+        console.log(`[unified] 成功转换 ${translations.length} 条文本格式翻译为 JSON`);
+        return result;
+    } catch (error) {
+        console.error('[unified] 文本转JSON失败:', error);
+        return text;
+    }
+}
+
+/**
  * 测试服务连接
  */
 export async function testServiceConnection(service: string): Promise<{ success: boolean; message: string; url: string }> {
@@ -167,14 +197,17 @@ export async function unifiedTranslate(message: any): Promise<string> {
         const model = getModelName(service);
         const temperature = getTemperature(service, model);
         const messages = buildMessages(message.origin, isBatch);
-        const responseFormat = buildResponseFormat(isBatch);
+        
+        // 某些端点不支持 response_format，仅对支持的服务使用
+        const supportsResponseFormat = service !== services.custom;
+        const responseFormat = supportsResponseFormat ? buildResponseFormat(isBatch) : undefined;
         
         // 调用API
         const completion = await client.chat.completions.create({
             model,
             messages,
             temperature,
-            response_format: responseFormat,
+            ...(responseFormat && { response_format: responseFormat }),
         });
         
         // 提取结果
@@ -189,6 +222,12 @@ export async function unifiedTranslate(message: any): Promise<string> {
         // 在批量翻译时记录provider信息
         if (isBatch) {
             console.log(`[unified] 批量翻译成功 [Service: ${service}] [Provider: ${actualProvider}]`);
+            console.log(`[unified] 原始响应内容:`, content.substring(0, 500));
+        }
+        
+        // 对于不支持 response_format 的服务，需要手动转换格式
+        if (isBatch && service === services.custom) {
+            return convertTextToJsonFormat(content);
         }
         
         // 后处理（移除<think>标签等）
