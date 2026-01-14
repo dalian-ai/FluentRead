@@ -6,6 +6,7 @@
 import browser from 'webextension-polyfill';
 import { config } from './config';
 import { cache } from './cache';
+import { parseBatchTranslations } from './jsonParser';
 
 // 批处理任务接口
 interface BatchTask {
@@ -22,10 +23,10 @@ let batchTimer: any = null;
 let isProcessing = false; // 标记是否正在处理批次
 
 // 配置参数
-const BATCH_WINDOW_MS = 50;       // 批处理窗口时间（毫秒）- 从300ms减少到50ms提高响应速度
-const MAX_TOKENS_PER_BATCH = 4000; // 每批最大tokens数 - 与deepseek API限制保持一致
+const BATCH_WINDOW_MS = 100;       // 批处理窗口时间（毫秒）- 从300ms减少到50ms提高响应速度
+const MAX_TOKENS_PER_BATCH = 3000; // 每批最大tokens数 - 与deepseek API限制保持一致
 const MIN_BATCH_SIZE = 3;          // 最小批处理数量（小于此数量不进行批处理）
-const MAX_CONCURRENT_BATCHES = 8;  // 最大并发批次数 - 避免同时发送过多请求
+const MAX_CONCURRENT_BATCHES = 6;  // 最大并发批次数 - 避免同时发送过多请求
 
 /**
  * 粗略估算文本的token数量
@@ -192,7 +193,7 @@ async function translateBatch(tasks: BatchTask[]) {
   }
   
   // 解析批量翻译结果
-  const results = parseBatchResult(result, uniqueTasksList.length);
+  const results = parseBatchTranslations(result, uniqueTasksList.length, config.service);
   
   // 分发结果到所有相关任务（包括重复的）
   for (let i = 0; i < uniqueTasksList.length; i++) {
@@ -224,7 +225,7 @@ async function translateBatchNormal(tasks: BatchTask[]) {
   // 构建批量翻译的提示词（文本已在 translateApi 中清理过）
   const origins = tasks.map((task, index) => `[${index + 1}] ${task.origin}`).join('\n\n');
   
-  console.log('[批量翻译] 发送批量翻译请求，任务数:', tasks.length);
+  console.log('[批量翻译] 发送批量翻译请求，任务数:', tasks.length, 'Provider:', config.service);
   
   // 发送批量翻译请求
   let result = await browser.runtime.sendMessage({
@@ -239,17 +240,17 @@ async function translateBatchNormal(tasks: BatchTask[]) {
     // 检查是否是错误对象
     if (typeof result === 'object' && result !== null && 'error' in result) {
       const errorDetail = (result as any).error;
-      console.error('[批量翻译-正常] 收到错误对象:', errorDetail);
+      console.error('[批量翻译-正常] 收到错误对象:', errorDetail, 'Provider:', config.service);
       throw new Error(errorDetail);
     }
-    console.error('[批量翻译-正常] API返回结果类型异常:', typeof result, result);
+    console.error('[批量翻译-正常] API返回结果类型异常:', typeof result, result, 'Provider:', config.service);
     throw new Error(`API返回结果类型错误: ${typeof result}`);
   }
   
-  console.log('[批量翻译] 收到翻译结果，长度:', result.length, '预览:', result.substring(0, 200));
+  console.log('[批量翻译] 收到翻译结果，长度:', result.length, '预览:', result.substring(0, 200), 'Provider:', config.service);
   
   // 解析批量翻译结果
-  const results = parseBatchResult(result, tasks.length);
+  const results = parseBatchTranslations(result, tasks.length, config.service);
   
   console.log('[批量翻译] 解析后结果数:', results.length);
   
@@ -276,82 +277,6 @@ async function translateBatchNormal(tasks: BatchTask[]) {
     
     task.resolve(translatedText);
   }
-}
-
-/**
- * 解析批量翻译结果
- * 期望格式：JSON {"translations":[{"index":1,"text":"译文1"}]}
- * 回退格式：[1] 翻译结果1\n\n[2] 翻译结果2\n\n...
- */
-function parseBatchResult(result: string, expectedCount: number): string[] {
-  // 确保result是字符串
-  if (typeof result !== 'string') {
-    console.error('[批量翻译] 翻译结果不是字符串:', typeof result, result);
-    try {
-      result = String(result);
-    } catch (e) {
-      console.error('[批量翻译] 无法转换为字符串:', e);
-      return new Array(expectedCount).fill('');
-    }
-  }
-  
-  console.log('[parseBatchResult] 开始解析，期望数量:', expectedCount, '结果长度:', result.length);
-  
-  // 首先尝试JSON格式解析
-  try {
-    // 提取JSON部分（可能包含markdown代码块）
-    let jsonStr = result.trim();
-    
-    // 移除可能的markdown代码块标记
-    jsonStr = jsonStr.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
-    jsonStr = jsonStr.replace(/^```\s*/, '').replace(/\s*```$/, '');
-    
-    const parsed = JSON.parse(jsonStr);
-    
-    if (parsed.translations && Array.isArray(parsed.translations)) {
-      const results: string[] = new Array(expectedCount).fill('');
-      
-      parsed.translations.forEach((item: any) => {
-        if (item.index && item.text !== undefined && item.text !== null) {
-          const index = parseInt(item.index) - 1;
-          if (index >= 0 && index < expectedCount) {
-            // 确保text是字符串
-            results[index] = typeof item.text === 'string' ? item.text : String(item.text);
-          }
-        }
-      });
-      
-      console.log('[parseBatchResult] JSON格式解析成功，解析到', parsed.translations.length, '个结果');
-      return results;
-    }
-  } catch (e) {
-    console.warn('[parseBatchResult] JSON解析失败，尝试文本格式:', e);
-  }
-  
-  // 回退：尝试按序号分割 - 匹配行首的 [数字]
-  const results: string[] = [];
-  const pattern = /^\[(\d+)\]\s*([\s\S]*?)(?=\n\s*\[\d+\]|\s*$)/gm;
-  let match;
-  
-  while ((match = pattern.exec(result)) !== null) {
-    const index = parseInt(match[1]) - 1;
-    let text = match[2].trim();
-    text = text.replace(/^\[\d+\]\s*/, '');
-    results[index] = text;
-  }
-  
-  console.log('[parseBatchResult] 按序号解析到', results.length, '个结果');
-  
-  // 如果仍然解析失败，尝试按空行分割
-  if (results.length !== expectedCount) {
-    console.warn('[批量翻译] 按序号解析失败，尝试按空行分割');
-    let parts = result.split(/\n\s*\n/).map(s => s.trim()).filter(s => s.length > 0);
-    parts = parts.map(part => part.replace(/^\[\d+\]\s*/, ''));
-    console.log('[parseBatchResult] 按空行解析到', parts.length, '个结果');
-    return parts.slice(0, expectedCount);
-  }
-  
-  return results;
 }
 
 /**

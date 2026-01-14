@@ -3,7 +3,7 @@
   "name": "简单单翻译器",
   "description": "浏览器开源翻译插件",
   "private": true,
-  "version": "0.26.0",
+  "version": "0.28.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -25,6 +25,7 @@
     "element-plus": "^2.9.3",
     "franc-min": "^6.2.0",
     "js-beautify": "^1.15.1",
+    "openai": "^6.16.0",
     "webextension-polyfill": "^0.12.0"
   },
   "devDependencies": {

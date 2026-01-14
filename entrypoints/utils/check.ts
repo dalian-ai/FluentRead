@@ -77,8 +77,17 @@ export function searchClassName(node: Node, className: string): Node | null {
 }
 
 export function contentPostHandler(text: string) {
-    // 替换掉<think>与</think>之间的内容
+    // 1. 替换掉<think>与</think>之间的内容（支持多个think标签）
     let content = text;
-    content = content.replace(/^<think>[\s\S]*?<\/think>/, "");
+    content = content.replace(/<think>[\s\S]*?<\/think>/g, "");
+    
+    // 2. 移除可能的翻译说明等额外内容（括号内的说明）
+    // 仅在批量翻译时这样做，单个翻译保留说明
+    // 但为了保险，只移除末尾的大段括号说明
+    content = content.replace(/\n*[（(]\s*翻译说明[\s\S]*?[）)]\s*$/g, "");
+    
+    // 3. 清理前后空白
+    content = content.trim();
+    
     return content;
 }

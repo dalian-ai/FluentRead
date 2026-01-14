@@ -2,79 +2,109 @@
 import {customModelString, defaultOption} from "./option";
 import {config} from "@/entrypoints/utils/config";
 
-// openai 格式的消息模板（通用模板）
-export function commonMsgTemplate(origin: string, isBatch: boolean = false) {
-    // 检测是否使用自定义模型
-    let model = config.model[config.service] === customModelString ? config.customModel[config.service] : config.model[config.service]
-
-    // 删除模型名称中的中文括号及其内容，如"gpt-4（推荐）" -> "gpt-4"
-    model = model.replace(/（.*）/g, "");
-
-    let system = config.system_role[config.service] || defaultOption.system_role;
-    let user: string;
-    
+/**
+ * 构建翻译提示词
+ */
+function buildTranslationPrompt(origin: string, targetLang: string, isBatch: boolean): string {
     if (isBatch) {
-        // 批量翻译模式：使用JSON格式确保准确映射
-        user = `翻译以下文本到${config.to}，严格按JSON格式返回，不要添加任何其他内容：
-{"translations":[{"index":1,"text":"译文1"},{"index":2,"text":"译文2"}]}
+        return `请将以下带序号的文本翻译成${targetLang}。每个翻译项必须包含对应的序号(index)和译文(text)。
 
 待翻译内容：
 ${origin}`;
     } else {
-        // 单独翻译模式：使用JSON格式返回
-        user = `翻译以下文本到${config.to}，严格按JSON格式返回，不要添加任何其他内容：
-{"translation":"译文"}
+        return `请将以下文本翻译成${targetLang}：
 
-待翻译内容：
 ${origin}`;
     }
+}
 
-    const payload: any = {
-        'model': model,
-        "temperature": 1.0,
-        'messages': [
-            {'role': 'system', 'content': system},
-            {'role': 'user', 'content': user},
-        ],
-        // 强制 JSON 输出
-        response_format: { type: "json_object" }
+/**
+ * 获取清理后的模型名称
+ */
+function getCleanModelName(): string {
+    let model = config.model[config.service] === customModelString 
+        ? config.customModel[config.service] 
+        : config.model[config.service];
+    
+    // 删除模型名称中的中文括号及其内容，如"gpt-4（推荐）" -> "gpt-4"
+    return model.replace(/（.*）/g, "");
+}
+
+// openai 格式的消息模板（通用模板）
+export function commonMsgTemplate(origin: string, isBatch: boolean = false) {
+    const model = getCleanModelName();
+    const system = config.system_role[config.service] || defaultOption.system_role;
+    const user = buildTranslationPrompt(origin, config.to, isBatch);
+
+    const payload: Record<string, any> = {
+        model,
+        temperature: 1.0,
+        messages: [
+            {role: 'system', content: system},
+            {role: 'user', content: user},
+        ]
     };
     
-    return JSON.stringify(payload)
+    // 使用 json_schema 强制返回正确格式
+    if (isBatch) {
+        payload.response_format = {
+            type: "json_schema",
+            json_schema: {
+                name: "batch_translation",
+                strict: true,
+                schema: {
+                    type: "object",
+                    properties: {
+                        translations: {
+                            type: "array",
+                            items: {
+                                type: "object",
+                                properties: {
+                                    index: { type: "number" },
+                                    text: { type: "string" }
+                                },
+                                required: ["index", "text"],
+                                additionalProperties: false
+                            }
+                        }
+                    },
+                    required: ["translations"],
+                    additionalProperties: false
+                }
+            }
+        };
+    } else {
+        payload.response_format = {
+            type: "json_schema",
+            json_schema: {
+                name: "single_translation",
+                strict: true,
+                schema: {
+                    type: "object",
+                    properties: {
+                        translation: { type: "string" }
+                    },
+                    required: ["translation"],
+                    additionalProperties: false
+                }
+            }
+        };
+    }
+    
+    return JSON.stringify(payload);
 }
 
 // deepseek
 export function deepseekMsgTemplate(origin: string, isBatch: boolean = false) {
-    // 检测是否使用自定义模型
-    let model = config.model[config.service] === customModelString ? config.customModel[config.service] : config.model[config.service]
+    const model = getCleanModelName();
+    const system = config.system_role[config.service] || defaultOption.system_role;
+    const user = buildTranslationPrompt(origin, config.to, isBatch);
 
-    // 删除模型名称中的中文括号及其内容，如"gpt-4（推荐）" -> "gpt-4"
-    model = model.replace(/（.*）/g, "");
-
-    let system = config.system_role[config.service] || defaultOption.system_role;
-    let user: string;
-    
-    if (isBatch) {
-        // 批量翻译模式：使用JSON格式确保准确映射
-        user = `翻译以下文本到${config.to}，严格按JSON格式返回，不要添加任何其他内容：
-{"translations":[{"index":1,"text":"译文1"},{"index":2,"text":"译文2"}]}
-
-待翻译内容：
-${origin}`;
-    } else {
-        // 单独翻译模式：使用JSON格式返回
-        user = `翻译以下文本到${config.to}，严格按JSON格式返回，不要添加任何其他内容：
-{"translation":"译文"}
-
-待翻译内容：
-${origin}`;
-    }
-
-    const payload: any = {
-        'model': model,
-        'messages': [
-            {'role': 'system', 'content': system},
-            {'role': 'user', 'content': user},
+    const payload: Record<string, any> = {
+        model,
+        messages: [
+            {role: 'system', content: system},
+            {role: 'user', content: user},
         ]
     };
 
@@ -83,8 +113,51 @@ ${origin}`;
         payload.temperature = 0.7;
     }
     
-    // 强制 JSON 输出
-    payload.response_format = { type: "json_object" };
+    // 使用 json_schema 强制返回正确格式
+    if (isBatch) {
+        payload.response_format = {
+            type: "json_schema",
+            json_schema: {
+                name: "batch_translation",
+                strict: true,
+                schema: {
+                    type: "object",
+                    properties: {
+                        translations: {
+                            type: "array",
+                            items: {
+                                type: "object",
+                                properties: {
+                                    index: { type: "number" },
+                                    text: { type: "string" }
+                                },
+                                required: ["index", "text"],
+                                additionalProperties: false
+                            }
+                        }
+                    },
+                    required: ["translations"],
+                    additionalProperties: false
+                }
+            }
+        };
+    } else {
+        payload.response_format = {
+            type: "json_schema",
+            json_schema: {
+                name: "single_translation",
+                strict: true,
+                schema: {
+                    type: "object",
+                    properties: {
+                        translation: { type: "string" }
+                    },
+                    required: ["translation"],
+                    additionalProperties: false
+                }
+            }
+        };
+    }
 
     return JSON.stringify(payload);
 }
