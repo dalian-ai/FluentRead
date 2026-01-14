@@ -9,6 +9,49 @@ import { urls } from '../utils/constant';
 import { services } from '../utils/option';
 import { contentPostHandler } from '@/entrypoints/utils/check';
 
+/**
+ * 测试服务连接
+ */
+export async function testServiceConnection(service: string): Promise<{ success: boolean; message: string; url: string }> {
+    try {
+        const baseURL = config.proxy[service] || urls[service];
+        const apiKey = config.token[service];
+        
+        console.log(`[unified] 测试连接 [Service: ${service}] [URL: ${baseURL}]`);
+        
+        // 尝试创建一个简单的请求来测试连接
+        const testUrl = baseURL.replace('/chat/completions', '/models').replace('/v1/v1/', '/v1/');
+        
+        const response = await fetch(testUrl, {
+            method: 'GET',
+            headers: apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {},
+        }).catch(err => {
+            return { ok: false, status: 0, statusText: err.message };
+        });
+        
+        if (response.ok) {
+            return {
+                success: true,
+                message: '连接成功',
+                url: baseURL
+            };
+        } else {
+            return {
+                success: false,
+                message: `连接失败: ${response.status} ${response.statusText}`,
+                url: baseURL
+            };
+        }
+    } catch (error) {
+        const baseURL = config.proxy[service] || urls[service];
+        return {
+            success: false,
+            message: error instanceof Error ? error.message : String(error),
+            url: baseURL
+        };
+    }
+}
+
 // 获取模型名称
 function getModelName(service: string): string {
     const customModelString = 'custom';
@@ -152,6 +195,9 @@ export async function unifiedTranslate(message: any): Promise<string> {
         return contentPostHandler(content);
         
     } catch (error) {
+        const service = config.service;
+        const baseURL = config.proxy[service] || urls[service];
+        
         // OpenAI SDK会自动处理错误格式
         if (error instanceof OpenAI.APIError) {
             const provider = (error as any).provider || config.service;
@@ -164,7 +210,32 @@ export async function unifiedTranslate(message: any): Promise<string> {
             throw new Error(`[${provider}] ${error.message}`);
         }
         
-        console.error('[unified] 翻译失败:', error);
-        throw error;
+        // 详细记录错误信息
+        console.error(`[unified] 翻译失败 [Service: ${service}] [URL: ${baseURL}]`);
+        console.error(`[unified] 错误类型: ${error instanceof Error ? error.constructor.name : typeof error}`);
+        console.error(`[unified] 错误信息:`, error instanceof Error ? error.message : String(error));
+        console.error(`[unified] 完整错误:`, error);
+        
+        // 构建有用的错误消息
+        let errorMessage = `[${service}] Connection error`;
+        
+        if (error instanceof Error) {
+            const errMsg = error.message.toLowerCase();
+            
+            // 检测常见的连接问题
+            if (errMsg.includes('failed to fetch') || errMsg.includes('networkerror') || errMsg.includes('fetch')) {
+                errorMessage = `[${service}] 无法连接到服务器 (${baseURL}). 请检查: 1) 服务是否运行 2) URL是否正确 3) 是否需要使用 http:// 而非 https://`;
+            } else if (errMsg.includes('cors')) {
+                errorMessage = `[${service}] CORS错误 (${baseURL}). 请检查服务器CORS配置`;
+            } else if (errMsg.includes('timeout')) {
+                errorMessage = `[${service}] 请求超时 (${baseURL}). 服务器响应太慢或无响应`;
+            } else if (errMsg.includes('unauthorized') || errMsg.includes('401')) {
+                errorMessage = `[${service}] 认证失败. 请检查API密钥是否正确`;
+            } else {
+                errorMessage = `[${service}] ${error.message}`;
+            }
+        }
+        
+        throw new Error(errorMessage);
     }
 }
