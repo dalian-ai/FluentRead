@@ -9,22 +9,6 @@ import { urls } from '../utils/constant';
 import { services } from '../utils/option';
 import { contentPostHandler } from '@/entrypoints/utils/check';
 
-// 为不同服务创建OpenAI客户端的工厂函数
-function createClient(service: string): OpenAI {
-    const baseURL = config.proxy[service] || urls[service];
-    const apiKey = config.token[service];
-    
-    return new OpenAI({
-        baseURL,
-        apiKey,
-        defaultHeaders: service === services.openrouter ? {
-            'HTTP-Referer': 'https://fluent.thinkstu.com',
-            'X-Title': 'FluentRead',
-        } : undefined,
-        dangerouslyAllowBrowser: true, // 浏览器环境
-    });
-}
-
 // 获取模型名称
 function getModelName(service: string): string {
     const customModelString = 'custom';
@@ -122,8 +106,19 @@ export async function unifiedTranslate(message: any): Promise<string> {
         const service = config.service;
         const isBatch = message.type === 'batch_translate';
         
-        // 创建客户端
-        const client = createClient(service);
+        // 配置OpenAI客户端
+        const baseURL = config.proxy[service] || urls[service];
+        const apiKey = config.token[service];
+        
+        const client = new OpenAI({
+            baseURL,
+            apiKey,
+            defaultHeaders: service === services.openrouter ? {
+                'HTTP-Referer': 'https://fluent.thinkstu.com',
+                'X-Title': 'FluentRead',
+            } : undefined,
+            dangerouslyAllowBrowser: true, // 浏览器环境
+        });
         
         // 获取模型和参数
         const model = getModelName(service);
