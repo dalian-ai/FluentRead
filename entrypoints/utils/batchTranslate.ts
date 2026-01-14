@@ -24,10 +24,10 @@ let batchTimer: any = null;
 let isProcessing = false; // 标记是否正在处理批次
 
 // 配置参数
-const BATCH_WINDOW_MS = 100;       // 批处理窗口时间（毫秒）- 从300ms减少到50ms提高响应速度
-const MAX_TOKENS_PER_BATCH = 2500; // 每批最大tokens数 - 与deepseek API限制保持一致
+const BATCH_WINDOW_MS = 80;       // 批处理窗口时间（毫秒）- 从300ms减少到50ms提高响应速度
+const MAX_TOKENS_PER_BATCH = 2200; // 每批最大tokens数 - 与deepseek API限制保持一致
 const MIN_BATCH_SIZE = 3;          // 最小批处理数量（小于此数量不进行批处理）
-const MAX_CONCURRENT_BATCHES = 6;  // 最大并发批次数 - 避免同时发送过多请求
+const MAX_CONCURRENT_BATCHES = 7;  // 最大并发批次数 - 避免同时发送过多请求
 const MAX_TOKEN_RATIO = 8;         // 翻译结果最大token比率（译文不应超过原文的8倍）
 const MIN_TOKEN_RATIO = 0.125;     // 翻译结果最小token比率（译文不应少于原文的1/8）
 
