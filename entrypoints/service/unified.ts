@@ -222,7 +222,7 @@ export async function unifiedTranslate(message: any): Promise<string> {
         // 在批量翻译时记录provider信息
         if (isBatch) {
             console.log(`[unified] 批量翻译成功 [Service: ${service}] [Provider: ${actualProvider}]`);
-            console.log(`[unified] 原始响应内容:`, content.substring(0, 500));
+            //console.log(`[unified] 原始响应内容:`, content.substring(0, 500));
         }
         
         // 对于不支持 response_format 的服务，需要手动转换格式

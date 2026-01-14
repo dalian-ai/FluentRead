@@ -108,7 +108,7 @@ function createIconElement(iconContent: string): HTMLElement {
   return iconElement;
 }
 
-// 插入加载动画
+// 插入加载图标
 export function insertLoadingSpinner(
   node: HTMLElement,
   isCache: boolean = false
@@ -116,15 +116,6 @@ export function insertLoadingSpinner(
   const spinner = document.createElement("span");
   spinner.className = "fluent-read-loading";
   if (isCache) spinner.style.borderTop = "3px solid green"; // 存在缓存时改为绿色
-  
-  // 异步检查动画配置
-  import('@/entrypoints/utils/config').then(({ config }) => {
-    if (!config.animations && !spinner.classList.contains('static')) {
-      spinner.classList.add('static');
-    }
-  }).catch(() => {
-    // 忽略错误，使用默认动画
-  });
   
   node.appendChild(spinner);
   return spinner;

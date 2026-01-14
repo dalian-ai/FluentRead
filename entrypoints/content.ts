@@ -133,191 +133,15 @@ export default defineContentScript({
 
 // 注册所有手动翻译触发事件监听器
 function setupManualTranslationTriggers() {
-    const screen = { mouseX: 0, mouseY: 0, hotkeyPressed: false, otherKeyPressed: false, hasSlideTranslation: false };
-    let mouseHotkeysPressed = new Set<string>();
+    // 已禁用：按键 + 鼠标悬浮翻译功能
     
-    // 获取当前配置的鼠标悬浮快捷键
-    const getConfiguredMouseHotkeyParts = () => {
-        // 如果选择了自定义快捷键，使用自定义的
-        const hotkeyString = config.hotkey === 'custom' 
-            ? config.customHotkey 
-            : config.hotkey;
-        
-        if (!hotkeyString || hotkeyString === 'none') {
-            return [];
-        }
-        
-        // 如果是旧的单个按键格式，直接返回
-        if (!hotkeyString.includes('+')) {
-            const k = hotkeyString.toLowerCase();
-            // 标准化修饰键名称
-            if (k === 'ctrl') return ['control'];
-            if (k === 'option') return ['alt'];
-            return [k];
-        }
-        
-        // 组合键格式
-        return hotkeyString.split('+').map(key => {
-            const k = key.toLowerCase();
-            // 标准化修饰键名称
-            if (k === 'ctrl') return 'control';
-            if (k === 'option') return 'alt';
-            return k;
-        });
-    };
+    // 保留鼠标位置追踪用于其他功能
+    const screen = { mouseX: 0, mouseY: 0 };
     
-    // 检查是否匹配鼠标悬浮快捷键
-    const checkMouseHotkey = () => {
-        const hotkeyParts = getConfiguredMouseHotkeyParts();
-        if (hotkeyParts.length === 0) return false;
-        
-        const allKeysPressed = hotkeyParts.every(key => mouseHotkeysPressed.has(key));
-        const exactMatch = allKeysPressed && hotkeyParts.length === mouseHotkeysPressed.size;
-        
-        return exactMatch;
-    };
-
-    // 1. 失去焦点时
-    window.addEventListener('blur', () => {
-        screen.hotkeyPressed = false;
-        screen.otherKeyPressed = false;
-        screen.hasSlideTranslation = false;
-        mouseHotkeysPressed.clear();
-    });
-
-    // 2. 按下按键时
-    window.addEventListener('keydown', event => {
-        // 防止重复事件
-        if (event.repeat) return;
-        
-        // 在 Mac 上禁止 cmd 键参与快捷键
-        const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
-        if (isMac && event.metaKey) {
-            return;
-        }
-        
-        // 记录修饰键
-        if (event.altKey) mouseHotkeysPressed.add('alt');
-        if (event.ctrlKey) mouseHotkeysPressed.add('control');
-        if (event.metaKey && !isMac) mouseHotkeysPressed.add('control'); // 非Mac系统上metaKey映射到control
-        if (event.shiftKey) mouseHotkeysPressed.add('shift');
-        
-        // 处理普通按键
-        const key = event.key.toLowerCase();
-        const code = event.code?.toLowerCase();
-        
-        // 处理字母键
-        if (code && code.startsWith('key')) {
-            const letter = code.slice(3).toLowerCase();
-            mouseHotkeysPressed.add(letter);
-        } else if (key.length === 1) {
-            // 单个字符的按键
-            mouseHotkeysPressed.add(key);
-        } else if (/^f\d+$/.test(key)) {
-            // 功能键 F1-F12
-            mouseHotkeysPressed.add(key);
-        } else {
-            // 特殊键映射
-            const specialKeys: Record<string, string> = {
-                'escape': 'escape',
-                'enter': 'enter',
-                'space': 'space',
-                'tab': 'tab',
-                'backspace': 'backspace',
-                'delete': 'delete',
-                'insert': 'insert',
-                'home': 'home',
-                'end': 'end',
-                'pageup': 'pageup',
-                'pagedown': 'pagedown',
-                'arrowup': 'arrowup',
-                'arrowdown': 'arrowdown',
-                'arrowleft': 'arrowleft',
-                'arrowright': 'arrowright'
-            };
-            if (specialKeys[key]) {
-                mouseHotkeysPressed.add(specialKeys[key]);
-            }
-        }
-        
-        // 检查是否匹配鼠标悬浮快捷键
-        if (checkMouseHotkey()) {
-            screen.hotkeyPressed = true;
-            screen.otherKeyPressed = false;
-        } else if (screen.hotkeyPressed) {
-            screen.otherKeyPressed = true;
-        }
-    });
-
-    // 3. 抬起按键时
-    window.addEventListener('keyup', event => {
-        // 清除字母键状态（在检查前先清除）
-        const releasedKey = event.key.toLowerCase();
-        const releasedCode = event.code?.toLowerCase();
-        if (releasedCode && releasedCode.startsWith('key')) {
-            const letter = releasedCode.slice(3).toLowerCase();
-            mouseHotkeysPressed.delete(letter);
-        } else if (releasedKey.length === 1) {
-            mouseHotkeysPressed.delete(releasedKey);
-        } else if (/^f\d+$/.test(releasedKey)) {
-            mouseHotkeysPressed.delete(releasedKey);
-        } else {
-            // 特殊键
-            const specialKeys: Record<string, string> = {
-                'escape': 'escape',
-                'enter': 'enter',
-                'space': 'space',
-                'tab': 'tab',
-                'backspace': 'backspace',
-                'delete': 'delete',
-                'insert': 'insert',
-                'home': 'home',
-                'end': 'end',
-                'pageup': 'pageup',
-                'pagedown': 'pagedown',
-                'arrowup': 'arrowup',
-                'arrowdown': 'arrowdown',
-                'arrowleft': 'arrowleft',
-                'arrowright': 'arrowright'
-            };
-            if (specialKeys[releasedKey]) {
-                mouseHotkeysPressed.delete(specialKeys[releasedKey]);
-            }
-        }
-        
-        // 清除修饰键状态
-        if (!event.altKey) mouseHotkeysPressed.delete('alt');
-        if (!event.ctrlKey) mouseHotkeysPressed.delete('control');
-        if (!event.metaKey) mouseHotkeysPressed.delete('control');
-        if (!event.shiftKey) mouseHotkeysPressed.delete('shift');
-        
-        // 获取当前配置的快捷键
-        const hotkeyParts = getConfiguredMouseHotkeyParts();
-        
-        // 如果当前按键集合为空，且之前激活了快捷键，且配置的快捷键不包含当前释放的键，则触发翻译
-        if (screen.hotkeyPressed && mouseHotkeysPressed.size === 0 && !screen.otherKeyPressed && !screen.hasSlideTranslation) {
-            // 检查插件是否开启
-            if (config.on) {
-                handleTranslation(screen.mouseX, screen.mouseY);
-            }
-        }
-        
-        // 如果所有按键都释放了，重置状态
-        if (mouseHotkeysPressed.size === 0) {
-            screen.hotkeyPressed = false;
-            screen.otherKeyPressed = false;
-            screen.hasSlideTranslation = false;
-        }
-    });
-
-    // 4. 鼠标移动时更新位置，并根据 hotkeyPressed 决定是否触发翻译
+    // 鼠标移动时更新位置
     document.body.addEventListener('mousemove', event => {
         screen.mouseX = event.clientX;
         screen.mouseY = event.clientY;
-        if (screen.hotkeyPressed && config.on) {
-            screen.hasSlideTranslation = true;
-            handleTranslation(screen.mouseX, screen.mouseY, 50)
-        }
     });
 
     // 5、手机端触摸事件，取中心点翻译
@@ -846,17 +670,7 @@ function createTranslationTooltip(element: HTMLElement, message: string, type: '
     tooltip.style.top = `${tooltipTop}px`;
     tooltip.style.left = `${tooltipLeft}px`;
     tooltip.style.transform = 'translateX(-50%)';
-    
-    // 如果禁用动画，直接显示，否则使用淡入效果
-    if (!config.animations) {
-        tooltip.style.opacity = '1';
-        tooltip.style.transform = 'translateX(-50%) translateY(0)';
-    } else {
-        tooltip.style.opacity = '0';
-        setTimeout(() => {
-            tooltip.classList.add('show');
-        }, 10);
-    }
+    tooltip.style.opacity = '1';
     
     document.body.appendChild(tooltip);
     return tooltip;
@@ -880,39 +694,11 @@ function getTooltipIcon(type: 'translating' | 'success' | 'error'): string {
 function removeExistingTooltip(): void {
     const existing = document.getElementById('fluent-input-translation-tooltip');
     if (existing) {
-        if (!config.animations) {
-            // 如果禁用动画，直接移除
-            existing.remove();
-        } else {
-            // 使用淡出动画
-            existing.classList.add('hide');
-            setTimeout(() => existing.remove(), 300);
-        }
+        existing.remove();
     }
 }
 
-/**
- * 添加输入框动画效果
- */
-function addInputBoxAnimation(element: HTMLElement, animationType: 'translating' | 'success' | 'error'): void {
-    // 如果禁用了动画，则不添加动画效果
-    if (!config.animations) {
-        return;
-    }
-    
-    // 移除已存在的动画类
-    element.classList.remove('fluent-input-translating', 'fluent-input-success', 'fluent-input-error');
-    
-    // 添加新的动画类
-    element.classList.add(`fluent-input-${animationType}`);
-    
-    // 如果不是翻译中的动画，在动画完成后移除类
-    if (animationType !== 'translating') {
-        setTimeout(() => {
-            element.classList.remove(`fluent-input-${animationType}`);
-        }, animationType === 'success' ? 1000 : 600);
-    }
-}
+
 
 /**
  * 专门用于输入框翻译的微软翻译函数（不使用缓存）
@@ -958,8 +744,7 @@ async function handleInputBoxTranslation(element: HTMLElement): Promise<void> {
             return;
         }
         
-        // 显示翻译中的动画和提示
-        addInputBoxAnimation(element, 'translating');
+        // 显示翻译中的提示
         tooltip = createTranslationTooltip(element, '微软翻译中', 'translating');
         
         try {
@@ -967,27 +752,19 @@ async function handleInputBoxTranslation(element: HTMLElement): Promise<void> {
             const translatedText = await translateWithMicrosoft(cleanedText, config.inputBoxTranslationTarget);
             
             if (translatedText && translatedText !== cleanedText) {
-                // 移除翻译中的动画
-                element.classList.remove('fluent-input-translating');
-                
                 // 设置翻译结果
                 setInputBoxText(element, translatedText);
                 
-                // 显示成功动画和提示
-                addInputBoxAnimation(element, 'success');
+                // 显示成功提示
                 removeExistingTooltip();
                 tooltip = createTranslationTooltip(element, '翻译成功', 'success');
             } else {
                 // 翻译结果与原文相同或为空
-                element.classList.remove('fluent-input-translating');
-                addInputBoxAnimation(element, 'error');
                 removeExistingTooltip();
                 tooltip = createTranslationTooltip(element, '内容无需翻译', 'error');
             }
         } catch (translationError) {
             // 翻译失败
-            element.classList.remove('fluent-input-translating');
-            addInputBoxAnimation(element, 'error');
             removeExistingTooltip();
             tooltip = createTranslationTooltip(element, '微软翻译失败', 'error');
             console.error('微软翻译失败:', translationError);
@@ -999,11 +776,7 @@ async function handleInputBoxTranslation(element: HTMLElement): Promise<void> {
     } catch (error) {
         console.error('输入框翻译失败:', error);
         
-        // 移除翻译中的动画
-        element.classList.remove('fluent-input-translating');
-        
-        // 显示错误动画和提示
-        addInputBoxAnimation(element, 'error');
+        // 显示错误提示
         removeExistingTooltip();
         tooltip = createTranslationTooltip(element, '翻译服务暂时不可用', 'error');
         

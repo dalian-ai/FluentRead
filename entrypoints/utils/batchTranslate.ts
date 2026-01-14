@@ -267,7 +267,7 @@ async function translateBatchNormal(tasks: BatchTask[]) {
     
     // 检查是否与原文相同
     if (translatedText === task.origin) {
-      console.warn('[批量翻译] 任务', i + 1, '翻译结果与原文相同，原文:', task.origin.substring(0, 50));
+      //console.warn('[批量翻译] 任务', i + 1, '翻译结果与原文相同，原文:', task.origin.substring(0, 50));
     }
     
     // 缓存结果

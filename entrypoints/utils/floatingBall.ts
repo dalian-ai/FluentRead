@@ -145,46 +145,6 @@ function handleFloatingBallClick() {
   }
 }
 
-// 悬浮球动画效果
-function addFloatingBallAnimation(type: 'translate' | 'restore') {
-  if (!floatingBallInstance) return;
-  
-  const ball = floatingBallInstance.element;
-  const originalBackground = ball.style.background;
-  const originalTransition = ball.style.transition;
-  
-  // 设置过渡效果
-  ball.style.transition = 'all 0.3s ease';
-  
-  // 根据类型设置不同动画
-  if (type === 'translate') {
-    // 翻译激活动画
-    ball.style.transform = 'scale(1.2)';
-    ball.style.boxShadow = '0 0 15px rgba(0, 128, 255, 0.8)';
-    ball.style.background = '#4285f4';
-  } else {
-    // 恢复原文动画
-    ball.style.transform = 'scale(1.2)';
-    ball.style.boxShadow = '0 0 15px rgba(76, 175, 80, 0.8)';
-    ball.style.background = '#4caf50';
-  }
-  
-  // 恢复原状
-  setTimeout(() => {
-    if (!floatingBallInstance) return;
-    ball.style.transform = '';
-    ball.style.boxShadow = '';
-    ball.style.background = originalBackground;
-    
-    // 恢复原来的过渡设置
-    setTimeout(() => {
-      if (floatingBallInstance) {
-        ball.style.transition = originalTransition;
-      }
-    }, 300);
-  }, 300);
-}
-
 /**
  * 保存配置到存储
  */
