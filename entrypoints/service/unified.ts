@@ -16,22 +16,55 @@ import { contentPostHandler } from '@/entrypoints/utils/check';
  */
 function convertTextToJsonFormat(text: string): string {
     try {
-        // 匹配 [数字] 内容 的模式
-        const pattern = /\[(\d+)\]\s*([^\[]+?)(?=\n\s*\[|$)/gs;
-        const matches = [...text.matchAll(pattern)];
+        console.log('[unified] 开始转换文本格式，原始内容前500字符:', text.substring(0, 500));
         
-        if (matches.length === 0) {
+        // 先按行分割，然后逐行处理
+        const lines = text.split('\n');
+        const translations: Array<{index: number, text: string}> = [];
+        let currentIndex = -1;
+        let currentText = '';
+        
+        for (const line of lines) {
+            // 匹配 [数字] 开头的行
+            const indexMatch = line.match(/^\[(\d+)\]\s*(.*)$/);
+            
+            if (indexMatch) {
+                // 如果之前有内容，先保存
+                if (currentIndex > 0 && currentText.trim()) {
+                    translations.push({
+                        index: currentIndex,
+                        text: currentText.trim()
+                    });
+                }
+                
+                // 开始新的条目
+                currentIndex = parseInt(indexMatch[1]);
+                currentText = indexMatch[2]; // 可能为空，也可能有内容
+            } else if (currentIndex > 0) {
+                // 继续追加到当前条目（多行内容）
+                if (line.trim()) {
+                    currentText += (currentText ? '\n' : '') + line;
+                }
+            }
+        }
+        
+        // 保存最后一条
+        if (currentIndex > 0 && currentText.trim()) {
+            translations.push({
+                index: currentIndex,
+                text: currentText.trim()
+            });
+        }
+        
+        if (translations.length === 0) {
             console.warn('[unified] 无法解析文本格式的批量翻译结果，返回原文');
+            console.warn('[unified] 原始内容:', text);
             return text;
         }
         
-        const translations = matches.map(match => ({
-            index: parseInt(match[1]),
-            text: match[2].trim()
-        }));
-        
         const result = JSON.stringify({ translations });
         console.log(`[unified] 成功转换 ${translations.length} 条文本格式翻译为 JSON`);
+        console.log('[unified] 转换后的前3条:', translations.slice(0, 3));
         return result;
     } catch (error) {
         console.error('[unified] 文本转JSON失败:', error);
@@ -222,7 +255,7 @@ export async function unifiedTranslate(message: any): Promise<string> {
         // 在批量翻译时记录provider信息
         if (isBatch) {
             console.log(`[unified] 批量翻译成功 [Service: ${service}] [Provider: ${actualProvider}]`);
-            //console.log(`[unified] 原始响应内容:`, content.substring(0, 500));
+            console.log(`[unified] 原始响应内容前500字符:`, content.substring(0, 500));
         }
         
         // 对于不支持 response_format 的服务，需要手动转换格式

@@ -24,9 +24,122 @@ let isProcessing = false; // 标记是否正在处理批次
 
 // 配置参数
 const BATCH_WINDOW_MS = 100;       // 批处理窗口时间（毫秒）- 从300ms减少到50ms提高响应速度
-const MAX_TOKENS_PER_BATCH = 3000; // 每批最大tokens数 - 与deepseek API限制保持一致
+const MAX_TOKENS_PER_BATCH = 2500; // 每批最大tokens数 - 与deepseek API限制保持一致
 const MIN_BATCH_SIZE = 3;          // 最小批处理数量（小于此数量不进行批处理）
 const MAX_CONCURRENT_BATCHES = 6;  // 最大并发批次数 - 避免同时发送过多请求
+const MAX_TOKEN_RATIO = 8;         // 翻译结果最大token比率（译文不应超过原文的8倍）
+const MIN_TOKEN_RATIO = 0.125;     // 翻译结果最小token比率（译文不应少于原文的1/8）
+
+/**
+ * 估算文本的token数量（简化版）
+ * 英文按空格分词，中文按字符计数
+ */
+function estimateTokenCount(text: string): number {
+  if (!text) return 0;
+  
+  // 统计中文字符
+  const chineseChars = text.match(/[\u4e00-\u9fa5]/g);
+  const chineseCount = chineseChars ? chineseChars.length : 0;
+  
+  // 统计英文单词（按空格和标点分割）
+  const englishWords = text.replace(/[\u4e00-\u9fa5]/g, ' ').match(/\b\w+\b/g);
+  const englishCount = englishWords ? englishWords.length : 0;
+  
+  // 中文字符约等于1个token，英文单词约等于1.3个token
+  return Math.ceil(chineseCount + englishCount * 1.3);
+}
+
+/**
+ * 验证批量翻译结果的合法性
+ * @param originalTexts 原始文本列表
+ * @param translatedTexts 翻译结果列表
+ * @returns 验证结果 { valid: boolean, invalidIndices: number[], reasons: string[] }
+ */
+function validateBatchTranslations(
+  originalTexts: string[], 
+  translatedTexts: string[]
+): { valid: boolean; invalidIndices: number[]; reasons: string[] } {
+  const invalidIndices: number[] = [];
+  const reasons: string[] = [];
+  
+  // 验证1：确保列表大小一致
+  if (originalTexts.length !== translatedTexts.length) {
+    console.error('[批量翻译验证] 列表大小不一致！', {
+      原文数量: originalTexts.length,
+      译文数量: translatedTexts.length
+    });
+    return {
+      valid: false,
+      invalidIndices: Array.from({ length: originalTexts.length }, (_, i) => i),
+      reasons: [`列表大小不匹配：原文${originalTexts.length}条，译文${translatedTexts.length}条`]
+    };
+  }
+  
+  // 验证2：检查每条翻译的token比率
+  for (let i = 0; i < originalTexts.length; i++) {
+    const originalText = originalTexts[i];
+    const translatedText = translatedTexts[i];
+    
+    // 跳过空内容
+    if (!originalText || !translatedText) {
+      if (originalText && !translatedText) {
+        invalidIndices.push(i);
+        reasons.push(`索引${i}: 翻译结果为空`);
+      }
+      continue;
+    }
+    
+    const originalTokens = estimateTokenCount(originalText);
+    const translatedTokens = estimateTokenCount(translatedText);
+    
+    // 避免除以0
+    if (originalTokens === 0) continue;
+    
+    const ratio = translatedTokens / originalTokens;
+    
+    // 检查是否超出合理范围
+    if (ratio > MAX_TOKEN_RATIO) {
+      invalidIndices.push(i);
+      reasons.push(
+        `索引${i}: 译文过长 (${translatedTokens} tokens vs 原文 ${originalTokens} tokens, 比率 ${ratio.toFixed(2)})`
+      );
+      console.warn(`[批量翻译验证] 索引${i}译文过长:`, {
+        原文: originalText.substring(0, 50),
+        译文: translatedText.substring(0, 50),
+        原文tokens: originalTokens,
+        译文tokens: translatedTokens,
+        比率: ratio.toFixed(2)
+      });
+    } else if (ratio < MIN_TOKEN_RATIO) {
+      invalidIndices.push(i);
+      reasons.push(
+        `索引${i}: 译文过短 (${translatedTokens} tokens vs 原文 ${originalTokens} tokens, 比率 ${ratio.toFixed(2)})`
+      );
+      console.warn(`[批量翻译验证] 索引${i}译文过短:`, {
+        原文: originalText.substring(0, 50),
+        译文: translatedText.substring(0, 50),
+        原文tokens: originalTokens,
+        译文tokens: translatedTokens,
+        比率: ratio.toFixed(2)
+      });
+    }
+  }
+  
+  const valid = invalidIndices.length === 0;
+  
+  if (valid) {
+    console.log('[批量翻译验证] ✓ 所有翻译通过验证');
+  } else {
+    console.warn('[批量翻译验证] ✗ 发现异常翻译:', {
+      异常数量: invalidIndices.length,
+      总数: originalTexts.length,
+      异常索引: invalidIndices,
+      原因: reasons
+    });
+  }
+  
+  return { valid, invalidIndices, reasons };
+}
 
 /**
  * 粗略估算文本的token数量
@@ -195,6 +308,18 @@ async function translateBatch(tasks: BatchTask[]) {
   // 解析批量翻译结果
   const results = parseBatchTranslations(result, uniqueTasksList.length, config.service);
   
+  // 验证翻译结果
+  const originalTexts = uniqueTasksList.map(task => task.origin);
+  const validation = validateBatchTranslations(originalTexts, results);
+  
+  if (!validation.valid) {
+    console.error('[批量翻译-去重] 翻译验证失败:', validation.reasons);
+    // 对于验证失败的条目，使用原文
+    for (const idx of validation.invalidIndices) {
+      results[idx] = uniqueTasksList[idx].origin;
+    }
+  }
+  
   // 分发结果到所有相关任务（包括重复的）
   for (let i = 0; i < uniqueTasksList.length; i++) {
     let translatedText = results[i] || uniqueTasksList[i].origin;
@@ -253,6 +378,18 @@ async function translateBatchNormal(tasks: BatchTask[]) {
   const results = parseBatchTranslations(result, tasks.length, config.service);
   
   console.log('[批量翻译] 解析后结果数:', results.length);
+  
+  // 验证翻译结果
+  const originalTexts = tasks.map(task => task.origin);
+  const validation = validateBatchTranslations(originalTexts, results);
+  
+  if (!validation.valid) {
+    console.error('[批量翻译-正常] 翻译验证失败:', validation.reasons);
+    // 对于验证失败的条目，使用原文
+    for (const idx of validation.invalidIndices) {
+      results[idx] = tasks[idx].origin;
+    }
+  }
   
   // 分发结果到各个任务
   for (let i = 0; i < tasks.length; i++) {
