@@ -18,7 +18,7 @@ let observer: IntersectionObserver | null = null; // 保存观察器实例
 let mutationObserver: MutationObserver | null = null; // 保存 DOM 变化观察器实例
 
 // 全文翻译的token限制（与后台API限制保持一致）
-const MAX_TRANSLATION_TOKENS = 2200;
+const MAX_TRANSLATION_TOKENS = 2000;
 
 // 页面停留时间检测
 let dwellTimer: any = null;
@@ -250,12 +250,18 @@ function batchTranslateAllContent() {
         return {
             node,
             nodeId,
-            text: node.textContent || ''
+            text: servicesType.isMachine(config.service) ? (node.textContent || '') : LLMStandardHTML(node)
         };
     });
     
     // 收集所有文本
     const textsToTranslate = nodeDataList.map(data => data.text);
+    
+    // 调试日志：打印前3个待翻译文本
+    console.log('[FluentRead] 前3个待翻译文本:');
+    textsToTranslate.slice(0, 3).forEach((text, idx) => {
+        console.log(`  [${idx}] ${text.substring(0, 100)}...`);
+    });
     
     // 直接批量翻译所有文本，不使用窗口期
     batchTranslateTexts(textsToTranslate, document.title)
@@ -478,7 +484,7 @@ export function autoTranslateEnglishPage() {
         nodeDataList.push({
             node,
             nodeId,
-            text: node.textContent || ''
+            text: servicesType.isMachine(config.service) ? (node.textContent || '') : LLMStandardHTML(node)
         });
     });
     
@@ -512,12 +518,14 @@ export function autoTranslateEnglishPage() {
                     const originalHTML = node.innerHTML;
                     const bilingualDiv = document.createElement('div');
                     bilingualDiv.className = 'fluent-read-bilingual-content';
+                    bilingualDiv.setAttribute('data-fr-index', index.toString()); // 添加索引属性
                     bilingualDiv.innerHTML = translatedText;
                     
                     node.innerHTML = '';
                     
                     const originalDiv = document.createElement('div');
                     originalDiv.className = 'fluent-read-original';
+                    originalDiv.setAttribute('data-fr-index', index.toString()); // 添加索引属性
                     originalDiv.innerHTML = originalHTML;
                     
                     node.appendChild(originalDiv);
@@ -687,7 +695,7 @@ export function handleSingleTranslation(node: any, slide: boolean) {
 function bilingualTranslate(node: any, nodeOuterHTML: any) {
     if (detectlang(node.textContent.replace(/[\s\u3000]/g, '')) === config.to) return;
 
-    let origin = node.textContent;
+    let origin = servicesType.isMachine(config.service) ? node.textContent : LLMStandardHTML(node);
     let spinner = insertLoadingSpinner(node);
     
     // 使用队列管理的翻译API

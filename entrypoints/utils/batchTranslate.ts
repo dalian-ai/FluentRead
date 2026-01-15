@@ -25,7 +25,7 @@ let isProcessing = false; // 标记是否正在处理批次
 
 // 配置参数
 const BATCH_WINDOW_MS = 80;       // 批处理窗口时间（毫秒）- 从300ms减少到50ms提高响应速度
-const MAX_TOKENS_PER_BATCH = 2200; // 每批最大tokens数 - 与deepseek API限制保持一致
+const MAX_TOKENS_PER_BATCH = 3000; // 每批最大tokens数 - 与deepseek API限制保持一致
 const MIN_BATCH_SIZE = 3;          // 最小批处理数量（小于此数量不进行批处理）
 const MAX_CONCURRENT_BATCHES = 7;  // 最大并发批次数 - 避免同时发送过多请求
 const MAX_TOKEN_RATIO = 8;         // 翻译结果最大token比率（译文不应超过原文的8倍）
@@ -300,6 +300,12 @@ async function translateBatch(tasks: BatchTask[]) {
   // 构建批量翻译的提示词（文本已在 translateApi 中清理过）
   const origins = uniqueTasksList.map((task, index) => `[${index + 1}] ${task.origin}`).join('\n\n');
   
+  // 调试日志：打印前3个发送的原文
+  console.log('[批量翻译-去重] 发送的前3个原文:');
+  uniqueTasksList.slice(0, 3).forEach((task, idx) => {
+    console.log(`  [${idx + 1}] ${task.origin.substring(0, 100)}...`);
+  });
+  
   // 发送批量翻译请求
   let result = await browser.runtime.sendMessage({
     type: 'batch_translate',
@@ -320,8 +326,22 @@ async function translateBatch(tasks: BatchTask[]) {
     throw new Error(`API返回结果类型错误: ${typeof result}`);
   }
   
+  // 调试日志：打印API返回的原始结果
+  console.log('[批量翻译-去重] API返回原始结果（前500字符）:', result.substring(0, 500));
+  console.log('[批量翻译-去重] API返回完整结果:', result);
+  
   // 解析批量翻译结果
   const results = parseBatchTranslations(result, uniqueTasksList.length, config.service);
+  
+  // 调试日志：打印解析后的前3个结果
+  console.log('[批量翻译-去重] 解析后的前3个结果:');
+  results.slice(0, 3).forEach((text, idx) => {
+    console.log(`  [DOM索引${idx}] 原文长度: ${uniqueTasksList[idx].origin.length}, 译文长度: ${text?.length || 0}`);
+    console.log(`  [DOM索引${idx}] 原文前100字符: ${uniqueTasksList[idx].origin.substring(0, 100)}...`);
+    console.log(`  [DOM索引${idx}] 译文前100字符: ${text?.substring(0, 100) || '(空)'}...`);
+    console.log('  → 将设置 data-fr-index="' + idx + '"');
+    console.log('---');
+  });
   
   // 验证翻译结果
   const originalTexts = uniqueTasksList.map(task => task.origin);

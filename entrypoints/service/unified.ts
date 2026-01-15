@@ -64,7 +64,10 @@ function convertTextToJsonFormat(text: string): string {
         
         const result = JSON.stringify({ translations });
         console.log(`[unified] 成功转换 ${translations.length} 条文本格式翻译为 JSON`);
-        console.log('[unified] 转换后的前3条:', translations.slice(0, 3));
+        console.log('[unified] 转换后的前3条:');
+        translations.slice(0, 3).forEach((item, idx) => {
+            console.log(`  [${item.index}] 长度: ${item.text.length}, 内容: ${item.text.substring(0, 150)}...`);
+        });
         return result;
     } catch (error) {
         console.error('[unified] 文本转JSON失败:', error);

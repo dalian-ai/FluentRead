@@ -162,6 +162,12 @@ export function parseBatchTranslations(result: string, expectedCount: number, pr
   }
   
   console.log('[JSON解析]', providerInfo, '按序号解析到', results.length, '个结果');
+  if (results.length > 0) {
+    console.log('[JSON解析]', providerInfo, '前3个解析结果:');
+    results.slice(0, 3).forEach((text, idx) => {
+      console.log(`  [${idx}] 长度: ${text?.length || 0}, 内容: ${text?.substring(0, 100) || '(空)'}...`);
+    });
+  }
   
   // 如果仍然解析失败，尝试按空行分割
   if (results.length !== expectedCount) {
