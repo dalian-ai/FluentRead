@@ -1,8 +1,4 @@
 import {services} from "../utils/option";
-import custom from "./custom";
-import zhipu from "./zhipu";
-import deepseek from "./deepseek";
-import common from "@/entrypoints/service/common";
 import { unifiedTranslate } from "./unified";
 
 type ServiceFunction = (message: any) => Promise<any>;

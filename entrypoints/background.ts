@@ -57,34 +57,38 @@ export default defineBackground({
         safari: false,
     },
     main() {
-        // 创建右键菜单项
-        try {
-            // 创建父菜单
-            browser.contextMenus.create({
-                id: 'fluentread-parent',
-                title: 'FluentRead',
-                contexts: ['page', 'selection'],
-            });
-            
-            // 创建全文翻译子菜单
-            browser.contextMenus.create({
-                id: CONTEXT_MENU_IDS.TRANSLATE_FULL_PAGE,
-                title: '全文翻译',
-                parentId: 'fluentread-parent',
-                contexts: ['page', 'selection'],
-            });
-            
-            // 创建撤销翻译子菜单
-            browser.contextMenus.create({
-                id: CONTEXT_MENU_IDS.RESTORE_ORIGINAL,
-                title: '撤销翻译',
-                parentId: 'fluentread-parent',
-                contexts: ['page', 'selection'],
-                enabled: false, // 初始状态为禁用
-            });
-        } catch (error) {
-            console.error('Error setting up context menu:', error);
-        }
+        // 创建右键菜单项（先移除所有已存在的菜单项以避免重复）
+        browser.contextMenus.removeAll().then(() => {
+            try {
+                // 创建父菜单
+                browser.contextMenus.create({
+                    id: 'fluentread-parent',
+                    title: 'FluentRead',
+                    contexts: ['page', 'selection'],
+                });
+                
+                // 创建全文翻译子菜单
+                browser.contextMenus.create({
+                    id: CONTEXT_MENU_IDS.TRANSLATE_FULL_PAGE,
+                    title: '全文翻译',
+                    parentId: 'fluentread-parent',
+                    contexts: ['page', 'selection'],
+                });
+                
+                // 创建撤销翻译子菜单
+                browser.contextMenus.create({
+                    id: CONTEXT_MENU_IDS.RESTORE_ORIGINAL,
+                    title: '撤销翻译',
+                    parentId: 'fluentread-parent',
+                    contexts: ['page', 'selection'],
+                    enabled: false, // 初始状态为禁用
+                });
+            } catch (error) {
+                console.error('Error setting up context menu:', error);
+            }
+        }).catch((error) => {
+            console.error('Error removing old context menus:', error);
+        });
 
         // 监听右键菜单点击事件
         browser.contextMenus.onClicked.addListener((info: any, tab: any) => {
