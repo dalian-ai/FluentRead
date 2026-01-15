@@ -538,7 +538,7 @@ export async function batchTranslateTexts(texts: string[], context: string = doc
   
   const invalidCount = validationResults.filter(r => !r.isValid).length;
   if (invalidCount > 0) {
-    console.warn(`[直接批量翻译] 发现 ${invalidCount} 个无效文本，将跳过翻译`);
+    //console.warn(`[直接批量翻译] 发现 ${invalidCount} 个无效文本，将跳过翻译`);
   }
   
   // 创建任务数组（只包含有效文本）

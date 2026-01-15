@@ -25,8 +25,8 @@ let dwellTimer: any = null;
 let hasDwellTranslated = false; // 防止重复触发
 let firstBatchCompleted = false; // 第一批翻译是否完成
 let rescanTimer: any = null; // 定期重新扫描计时器
-const DWELL_TIME_MS = 5000; // 停留5秒后触发批量翻译
-const RESCAN_INTERVAL_MS = 3000; // 每3秒重新扫描一次
+const DWELL_TIME_MS = 6000; // 停留6秒后触发批量翻译
+const RESCAN_INTERVAL_MS = 6000; // 每6秒重新扫描一次
 
 /**
  * 启动页面停留时间检测
@@ -72,13 +72,13 @@ function startRescan() {
     }
     
     let rescanCount = 0;
-    const maxRescans = 10; // 最多重新扫描10次（30秒）
+    const maxRescans = 40; // 最多重新扫描40次
     
-    console.log('[FluentRead] 启动定期重新扫描以捕获延迟加载内容');
+    //console.log('[FluentRead] 启动定期重新扫描以捕获延迟加载内容');
     
     rescanTimer = setInterval(() => {
         rescanCount++;
-        console.log(`[FluentRead] 第${rescanCount}次重新扫描...`);
+        //console.log(`[FluentRead] 第${rescanCount}次重新扫描...`);
         
         // 使用两种方法重新扫描
         const nodesOld = grabAllNode(document.body);
@@ -101,7 +101,7 @@ function startRescan() {
         });
         
         if (untranslatedNodes.length > 0) {
-            console.log(`[FluentRead] 发现${untranslatedNodes.length}个新节点，开始翻译`);
+            console.log(`[FluentRead] rescan发现${untranslatedNodes.length}个新节点，开始翻译`);
             
             untranslatedNodes.forEach((node, index) => {
                 const nodeId = `fr-node-${nodeIdCounter++}`;
@@ -119,7 +119,7 @@ function startRescan() {
                 }, batchDelay);
             });
         } else {
-            console.log(`[FluentRead] 未发现新节点`);
+            //console.log(`[FluentRead] 未发现新节点`);
         }
         
         // 达到最大扫描次数后停止
