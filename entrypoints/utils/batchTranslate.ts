@@ -25,8 +25,7 @@ let isProcessing = false; // 标记是否正在处理批次
 
 // 配置参数
 const BATCH_WINDOW_MS = 80;       // 批处理窗口时间（毫秒）- 从300ms减少到50ms提高响应速度
-const MAX_TOKENS_PER_BATCH = 3000; // 每批最大tokens数 - 与deepseek API限制保持一致
-const MIN_BATCH_SIZE = 3;          // 最小批处理数量（小于此数量不进行批处理）
+export const MAX_TOKENS_PER_BATCH = 3000; // 每批最大tokens数 - 与API限制保持一致
 const MAX_CONCURRENT_BATCHES = 7;  // 最大并发批次数 - 避免同时发送过多请求
 const MAX_TOKEN_RATIO = 8;         // 翻译结果最大token比率（译文不应超过原文的8倍）
 const MIN_TOKEN_RATIO = 0.125;     // 翻译结果最小token比率（译文不应少于原文的1/8）
@@ -228,20 +227,7 @@ async function processBatch() {
   }
   
   try {
-    // 如果任务数量少于最小批处理数量，逐个处理
-    if (tasks.length < MIN_BATCH_SIZE) {
-      for (const task of tasks) {
-        try {
-          const result = await translateSingle(task.origin, task.context);
-          task.resolve(result);
-        } catch (error) {
-          task.reject(error);
-        }
-      }
-      return;
-    }
-    
-    // 分组处理 - 并行处理所有批次以提高速度
+    // 分组处理 - 并行处理所有批次以提高速度（即使只有1个任务也使用批量翻译）
     const groups = groupTasks(tasks);
     
     console.log(`[批量翻译] 分为${groups.length}个批次并行处理`);
@@ -251,15 +237,10 @@ async function processBatch() {
       try {
         await translateBatch(group);
       } catch (error) {
-        // 批量翻译失败，尝试逐个翻译
-        console.warn('[批量翻译] 批量翻译失败，回退到单独翻译:', error);
+        // 批量翻译失败，标记所有任务失败
+        console.error('[批量翻译] 批次翻译失败:', error);
         for (const task of group) {
-          try {
-            const result = await translateSingle(task.origin, task.context);
-            task.resolve(result);
-          } catch (err) {
-            task.reject(err);
-          }
+          task.reject(error);
         }
       }
     }));
@@ -451,23 +432,7 @@ async function translateBatchNormal(tasks: BatchTask[]) {
   }
 }
 
-/**
- * 单独翻译一个任务（回退方案）
- */
-async function translateSingle(origin: string, context: string): Promise<string> {
-  const result = await browser.runtime.sendMessage({
-    context,
-    origin
-  });
-  
-  // 确保返回字符串
-  if (typeof result !== 'string') {
-    console.error('[translateSingle] 返回值不是字符串:', typeof result, result);
-    return String(result);
-  }
-  
-  return result;
-}
+
 
 /**
  * 添加翻译任务到批处理队列
@@ -633,17 +598,10 @@ export async function batchTranslateTexts(texts: string[], context: string = doc
           console.log(`[直接批量翻译] 完成批次 ${groupIndex + 1}/${groups.length}`);
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
-          console.error(`[直接批量翻译] 批次 ${groupIndex + 1} 翻译失败，错误: ${errorMsg}，回退到单独翻译`, error);
-          // 失败时逐个翻译
+          console.error(`[直接批量翻译] 批次 ${groupIndex + 1} 翻译失败:`, errorMsg, error);
+          // 标记所有任务失败
           for (const task of group) {
-            try {
-              const result = await translateSingle(task.origin, task.context);
-              task.resolve(result);
-            } catch (err) {
-              const singleErrorMsg = err instanceof Error ? err.message : String(err);
-              console.error('[直接批量翻译] 单独翻译也失败:', singleErrorMsg, err);
-              task.reject(err);
-            }
+            task.reject(error);
           }
         }
       })();
@@ -673,4 +631,188 @@ export async function batchTranslateTexts(texts: string[], context: string = doc
   console.log(`[直接批量翻译] 完成，成功: ${results.filter(r => r !== null).length}/${texts.length}`);
   
   return results as string[];
+}
+
+/**
+ * ==========================================
+ * 页面批量翻译核心功能
+ * ==========================================
+ */
+
+// 使用自定义属性标记已翻译的节点
+const TRANSLATED_ATTR = 'data-fr-translated';
+const TRANSLATED_ID_ATTR = 'data-fr-node-id';
+
+let nodeIdCounter = 0;
+
+/**
+ * 批量翻译整个页面的所有内容
+ * @param rootElement 根元素（通常是 document.body）
+ * @param isBilingual 是否双语显示
+ * @param originalContentsMap 用于保存原始内容的 Map
+ */
+export async function batchTranslateAllPageContent(
+  rootElement: Element,
+  isBilingual: boolean,
+  originalContentsMap: Map<string, string>
+) {
+  console.log('[批量翻译] 开始翻译整个页面');
+  
+  // 获取所有文本节点
+  const allNodes = getAllTextNodes(rootElement);
+  console.log(`[批量翻译] 找到 ${allNodes.length} 个文本节点`);
+  
+  if (allNodes.length === 0) {
+    console.log('[批量翻译] 没有需要翻译的节点');
+    return;
+  }
+  
+  // 过滤已翻译的节点和有已翻译祖先的节点
+  const nodesToTranslate = allNodes.filter(node => {
+    if (node.hasAttribute(TRANSLATED_ATTR)) return false;
+    
+    // 检查祖先是否已翻译
+    let ancestor = node.parentElement;
+    while (ancestor) {
+      if (ancestor.hasAttribute(TRANSLATED_ATTR)) {
+        return false;
+      }
+      ancestor = ancestor.parentElement;
+    }
+    return true;
+  });
+  
+  console.log(`[批量翻译] 过滤后需要翻译 ${nodesToTranslate.length} 个节点`);
+  
+  if (nodesToTranslate.length === 0) {
+    console.log('[批量翻译] 所有内容已翻译');
+    return;
+  }
+  
+  // 准备节点数据
+  const nodeDataList = nodesToTranslate.map(node => {
+    const nodeId = `fr-node-${nodeIdCounter++}`;
+    node.setAttribute(TRANSLATED_ID_ATTR, nodeId);
+    node.setAttribute(TRANSLATED_ATTR, 'true');
+    
+    // 保存原始内容
+    originalContentsMap.set(nodeId, node.innerHTML);
+    
+    return {
+      node,
+      nodeId,
+      text: node.textContent || ''
+    };
+  });
+  
+  // 提取要翻译的文本
+  const textsToTranslate = nodeDataList.map(data => data.text);
+  
+  // 批量翻译
+  const translatedTexts = await batchTranslateTexts(textsToTranslate, document.title);
+  
+  // 更新 DOM
+  nodeDataList.forEach((data, index) => {
+    const translatedText = translatedTexts[index];
+    if (!translatedText) {
+      console.warn(`[批量翻译] 节点 ${index} 翻译失败`);
+      return;
+    }
+    
+    const { node } = data;
+    
+    if (isBilingual) {
+      // 双语显示
+      const originalHTML = node.innerHTML;
+      const bilingualDiv = document.createElement('div');
+      bilingualDiv.className = 'fluent-read-bilingual-content';
+      bilingualDiv.textContent = translatedText;
+      
+      node.innerHTML = '';
+      
+      const originalDiv = document.createElement('div');
+      originalDiv.className = 'fluent-read-original';
+      originalDiv.innerHTML = originalHTML;
+      
+      node.appendChild(originalDiv);
+      node.appendChild(bilingualDiv);
+      node.classList.add('fluent-read-bilingual');
+    } else {
+      // 单语显示
+      node.textContent = translatedText;
+    }
+  });
+  
+  console.log('[批量翻译] 页面翻译完成并更新到 DOM');
+}
+
+/**
+ * 恢复所有翻译
+ * @param originalContentsMap 保存原始内容的 Map
+ */
+export function restoreAllTranslations(originalContentsMap: Map<string, string>) {
+  console.log('[批量翻译] 开始恢复原文');
+  
+  // 恢复所有已翻译的节点
+  document.querySelectorAll(`[${TRANSLATED_ATTR}="true"]`).forEach(node => {
+    const nodeId = node.getAttribute(TRANSLATED_ID_ATTR);
+    if (nodeId && originalContentsMap.has(nodeId)) {
+      const originalContent = originalContentsMap.get(nodeId);
+      node.innerHTML = originalContent!;
+      node.removeAttribute(TRANSLATED_ATTR);
+      node.removeAttribute(TRANSLATED_ID_ATTR);
+      node.classList.remove('fluent-read-bilingual');
+    }
+  });
+  
+  // 移除翻译内容元素
+  document.querySelectorAll('.fluent-read-bilingual-content').forEach(el => el.remove());
+  document.querySelectorAll('.fluent-read-original').forEach(el => {
+    // 将原文内容提升到父节点
+    const parent = el.parentElement;
+    if (parent) {
+      parent.innerHTML = el.innerHTML;
+    }
+  });
+  
+  nodeIdCounter = 0;
+  console.log('[批量翻译] 原文恢复完成');
+}
+
+/**
+ * 获取所有文本节点
+ */
+function getAllTextNodes(root: Element): Element[] {
+  const result: Element[] = [];
+  const skipTags = new Set(['script', 'style', 'noscript', 'iframe', 'code', 'pre', 'svg']);
+  
+  function traverse(element: Element) {
+    const tag = element.tagName?.toLowerCase();
+    
+    // 跳过不需要翻译的标签
+    if (skipTags.has(tag)) return;
+    if (element.classList?.contains('notranslate')) return;
+    if (element.classList?.contains('sr-only')) return;
+    
+    // 检查是否有直接的文本内容
+    let hasDirectText = false;
+    for (const child of element.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE && child.textContent?.trim()) {
+        hasDirectText = true;
+        break;
+      }
+    }
+    
+    if (hasDirectText && !result.includes(element)) {
+      result.push(element);
+    }
+    
+    // 继续遍历子元素
+    for (const child of element.children) {
+      traverse(child);
+    }
+  }
+  
+  traverse(root);
+  return result;
 }

@@ -1,4 +1,4 @@
-import { handleTranslation, autoTranslateEnglishPage, restoreOriginalContent, startDwellTimeDetection, stopDwellTimeDetection } from "./main/trans";
+import { autoTranslateEnglishPage, restoreOriginalContent } from "./main/trans";
 import { cache } from "./utils/cache";
 import { constants } from "@/entrypoints/utils/constant";
 import { getCenterPoint } from "@/entrypoints/utils/common";
@@ -131,126 +131,14 @@ export default defineContentScript({
     }
 })
 
-// 注册所有手动翻译触发事件监听器
+// 手动翻译功能已移除 - 扩展现在只专注于批量翻译
+// 如需手动翻译，请使用悬浮球或快捷键进行全文翻译
 function setupManualTranslationTriggers() {
-    // 已禁用：按键 + 鼠标悬浮翻译功能
-    
-    // 保留鼠标位置追踪用于其他功能
-    const screen = { mouseX: 0, mouseY: 0 };
-    
-    // 鼠标移动时更新位置
-    document.body.addEventListener('mousemove', event => {
-        screen.mouseX = event.clientX;
-        screen.mouseY = event.clientY;
-    });
-
-    // 5、手机端触摸事件，取中心点翻译
-    document.body.addEventListener('touchstart', event => {
-        let coordinate;
-        switch (config.hotkey) {
-            case constants.TwoFinger:
-                coordinate = getCenterPoint(event.touches, 2);
-                break;
-            case constants.ThreeFinger:
-                coordinate = getCenterPoint(event.touches, 3);
-                break;
-            case constants.FourFinger:
-                coordinate = getCenterPoint(event.touches, 4);
-                break;
-            default:
-                return
-        }
-
-        // 检查插件是否开启
-        if (config.on) {
-            handleTranslation(coordinate!.x, coordinate!.y);
-        }
-    });
-
-    // 6、双击鼠标翻译事件
-    document.body.addEventListener('dblclick', event => {
-        if (config.hotkey == constants.DoubleClick && config.on) {
-            // 通过双击事件获取鼠标位置
-            let mouseX = event.clientX;
-            let mouseY = event.clientY;
-            // 调用 handleTranslation 函数进行翻译
-            handleTranslation(mouseX, mouseY);
-        }
-    });
-
-    // 7、长按鼠标翻译事件（长按事件时鼠标不能移动）
-    let timer: number;
-    let startPos = { x: 0, y: 0 }; // startPos 记录鼠标按下时的位置
-    document.body.addEventListener('mouseup', () => clearTimeout(timer));
-    document.body.addEventListener('mousedown', event => {
-        if (config.hotkey === constants.LongPress) {
-            clearTimeout(timer); // 清除之前的计时器
-            startPos.x = event.clientX; // 记录鼠标按下时的初始位置
-            startPos.y = event.clientY;
-            timer = setTimeout(() => {
-                if (config.on) {
-                    let mouseX = event.clientX;
-                    let mouseY = event.clientY;
-                    handleTranslation(mouseX, mouseY);
-                }
-            }, 500) as unknown as number;
-        }
-    });
-    document.body.addEventListener('mousemove', event => {
-        // 如果鼠标移动超过10像素，取消长按事件
-        if (Math.abs(event.clientX - startPos.x) > 10 || Math.abs(event.clientY - startPos.y) > 10) {
-            clearTimeout(timer);
-        }
-    });
-    document.body.addEventListener('mousemove', event => {
-        // 检测鼠标是否移动，如果鼠标移动超过10像素，取消长按事件
-        if (config.hotkey === constants.LongPress
-            && Math.abs(event.clientX - startPos.x) > 10 || Math.abs(event.clientY - startPos.y) > 10) {
-            clearTimeout(timer);
-        }
-    });
-
-
-    // 8、鼠标中键翻译事件
-    document.body.addEventListener('mousedown', event => {
-        if (config.hotkey === constants.MiddleClick && config.on) {
-            if (event.button === 1) {
-                let mouseX = event.clientX;
-                let mouseY = event.clientY;
-                handleTranslation(mouseX, mouseY);
-            }
-        }
-    });
-
-
-    // 9、触屏设备双击/三击翻译事件
-    let touchCount = 0;
-    let touchTimer: any;
-    document.body.addEventListener('touchstart', event => {
-        // 检查是否为有效的热键配置，并且只处理单指触摸事件
-        if (![constants.DoubleClickScreen, constants.TripleClickScreen].includes(config.hotkey)
-            || event.touches.length !== 1) return;
-
-        // 确定需要的点击次数
-        const requiredTouches = config.hotkey === constants.DoubleClickScreen ? 2 : 3;
-
-        touchCount++; // 记录触摸次数
-
-        if (touchCount === 1) {
-            // 如果是第一次触摸，设置定时器，500ms内没有达到所需的触摸次数则重置
-            touchTimer = setTimeout(() => touchCount = 0, 500);
-        } else if (touchCount === requiredTouches) {
-            // 如果达到了所需的触摸次数，清除定时器并调用翻译处理函数
-            clearTimeout(touchTimer);
-            touchCount = 0;
-            if (config.on) {
-                handleTranslation(event.touches[0].clientX, event.touches[0].clientY);
-            }
-        }
-    });
+    // 已移除鼠标悬停翻译功能
+    // 保留空函数以保持兼容性
 }
 
-        // 设置全文翻译快捷键（与悬浮球解耦）
+// 设置全文翻译快捷键（与悬浮球解耦）
 function setupFloatingBallHotkey() {
     // 如果快捷键设置为 "none"，则禁用快捷键
     if (config.floatingBallHotkey === 'none') return;
