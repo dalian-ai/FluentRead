@@ -200,7 +200,7 @@ export async function unifiedTranslate(message: any): Promise<string> {
         }
         
         // 某些端点不支持 response_format，仅对支持的服务使用
-        const supportsResponseFormat = service !== services.custom;
+        const supportsResponseFormat = true; // service !== services.custom;
         const responseFormat = supportsResponseFormat ? buildResponseFormat(isBatch) : undefined;
         
         // 调用 Responses API
@@ -215,17 +215,26 @@ export async function unifiedTranslate(message: any): Promise<string> {
         let content: string;
         const actualProvider = (completion as any).provider || service;
         
+        // 兼容不同的字段名：output_parsed, output, content, response
         if (completion.output_parsed) {
             // 使用结构化解析结果
             console.log(`[unified] 使用结构化输出 [Service: ${service}] [Provider: ${actualProvider}]`);
             content = JSON.stringify(completion.output_parsed);
         } else if (completion.output) {
-            // 降级到文本输出
-            console.log(`[unified] 使用文本输出 [Service: ${service}] [Provider: ${actualProvider}]`);
+            // 降级到文本输出 (output)
+            console.log(`[unified] 使用文本输出(output) [Service: ${service}] [Provider: ${actualProvider}]`);
             content = typeof completion.output === 'string' ? completion.output : JSON.stringify(completion.output);
+        } else if (completion.content) {
+            // 降级到文本输出 (content) - 适配你的自定义返回格式
+            console.log(`[unified] 使用文本输出(content) [Service: ${service}] [Provider: ${actualProvider}]`);
+            content = typeof completion.content === 'string' ? completion.content : JSON.stringify(completion.content);
+        } else if (completion.response) {
+            // 降级到文本输出 (response)
+            console.log(`[unified] 使用文本输出(response) [Service: ${service}] [Provider: ${actualProvider}]`);
+            content = typeof completion.response === 'string' ? completion.response : JSON.stringify(completion.response);
         } else {
             console.error(`[unified] API返回的内容为空 [Provider: ${actualProvider}]:`, completion);
-            throw new Error(`[${actualProvider}] API返回的内容为空`);
+            throw new Error(`[${actualProvider}] API返回的内容为空: 缺少 output/content/response 字段`);
         }
         
         // 在批量翻译时记录provider信息
