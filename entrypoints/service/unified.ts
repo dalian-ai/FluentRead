@@ -135,13 +135,40 @@ export async function unifiedTranslate(message: any): Promise<string> {
         const supportsResponseFormat = true; // service !== services.custom;
         const responseFormat = supportsResponseFormat ? buildResponseFormat(isBatch) : undefined;
         
-        // 调用 Responses API
-        const completion = await (client as any).responses.create({
+        // 使用 fetch 直接调用，绕过 Open SDK 可能的参数序列化问题
+        // 这里的关键是确保 input 字段是一个数组，而不是由 SDK 错误地处理为对象
+        const fetchUrl = `${baseURL.replace(/\/+$/, '')}/responses`;
+        const payload = {
             model,
-            messages,
+            input: messages, // 明确传递为数组
+            messages,        // 冗余字段以防万一
             temperature,
             ...(responseFormat && { response_format: responseFormat }),
+        };
+        
+        console.log(`[unified] 使用 fetch 调用: ${fetchUrl}`);
+        // console.log(`[unified] Payload structure:`, JSON.stringify(payload).substring(0, 200) + '...');
+
+        const response = await fetch(fetchUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+                ...(service === services.openrouter ? {
+                    'HTTP-Referer': 'https://fluent.thinkstu.com',
+                    'X-Title': 'FluentRead',
+                } : {})
+            },
+            body: JSON.stringify(payload)
         });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`[unified] API请求失败: ${response.status} ${response.statusText}`, errorText);
+            throw new Error(`[${service}] API Error (${response.status}): ${errorText}`);
+        }
+
+        const completion = await response.json();
         
         // 提取结果 - 优先使用 output_parsed（结构化输出）
         let content: string;
