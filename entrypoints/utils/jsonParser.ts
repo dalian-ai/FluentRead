@@ -24,11 +24,11 @@ export function parseSingleTranslation(result: string): string {
     if (parsed.translation !== undefined && parsed.translation !== null) {
       return typeof parsed.translation === 'string' ? parsed.translation : String(parsed.translation);
     }
+    
+    throw new Error('[JSON解析] 单条翻译结果中缺少 translation 字段');
   } catch (e) {
-    // JSON解析失败，返回原始字符串
+    throw new Error(`[JSON解析] 单条翻译JSON解析失败: ${(e as Error).message}`);
   }
-  
-  return result;
 }
 
 /**
@@ -138,80 +138,14 @@ export function parseBatchTranslations(result: string, expectedCount: number, pr
     
     // 格式3：错误的字符串格式 {"translation": "所有翻译作为一个字符串"}
     if (parsed.translation && typeof parsed.translation === 'string') {
-      console.warn('[JSON解析]', providerInfo, '检测到translation是字符串，尝试从字符串中提取');
-      // 降级到文本解析
-      result = parsed.translation;
+      throw new Error(`[JSON解析] ${providerInfo} 返回了单字符串translation，不符合Structured Output Schema`);
     }
   } catch (e) {
     const error = e as Error;
-    console.warn('[JSON解析]', providerInfo, 'JSON解析失败，尝试文本格式:', error.message);
-    console.warn('[JSON解析]', providerInfo, '失败原因详情:', error);
-    console.warn('[JSON解析]', providerInfo, '原始内容前500字符:', result.substring(0, 500));
+    console.error('[JSON解析]', providerInfo, 'JSON解析失败:', error.message);
+    console.error('[JSON解析] 原始内容:', result);
+    throw new Error(`[JSON解析] ${providerInfo} JSON解析失败: ${error.message}`);
   }
   
-  // 回退1：尝试按序号分割
-  const results: string[] = [];
-  
-  // 尝试格式1: [数字] 译文
-  let pattern = /^\[(\d+)\]\s*([\s\S]*?)(?=\n\s*\[\d+\]|\s*$)/gm;
-  let match;
-  
-  while ((match = pattern.exec(result)) !== null) {
-    const index = parseInt(match[1]) - 1;
-    let text = match[2].trim();
-    text = text.replace(/^\[\d+\]\s*/, '');
-    results[index] = text;
-  }
-  
-  // 如果[数字]格式没有匹配到，尝试格式2: 数字. 译文（带换行符的列表格式）
-  if (results.length === 0) {
-    // 先按换行符分割成行
-    const lines = result.split('\n');
-    let currentIndex = -1;
-    let currentText = '';
-    
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      
-      // 匹配行首的 "数字. " 格式
-      const numberMatch = line.match(/^(\d+)\.\s+(.*)$/);
-      if (numberMatch) {
-        // 保存上一个翻译
-        if (currentIndex >= 0 && currentText) {
-          results[currentIndex] = currentText.trim();
-        }
-        
-        // 开始新的翻译
-        currentIndex = parseInt(numberMatch[1]) - 1;
-        currentText = numberMatch[2];
-      } else if (currentIndex >= 0 && line) {
-        // 继续当前翻译的内容（多行翻译）
-        currentText += '\n' + line;
-      }
-    }
-    
-    // 保存最后一个翻译
-    if (currentIndex >= 0 && currentText) {
-      results[currentIndex] = currentText.trim();
-    }
-  }
-  
-  console.log('[JSON解析]', providerInfo, '按序号解析到', results.length, '个结果');
-  if (results.length > 0) {
-    console.log('[JSON解析]', providerInfo, '前3个解析结果:');
-    results.slice(0, 3).forEach((text, idx) => {
-      console.log(`  [${idx}] 长度: ${text?.length || 0}, 内容: ${text?.substring(0, 100) || '(空)'}...`);
-    });
-  }
-  
-  // 如果仍然解析失败，尝试按空行分割
-  if (results.length !== expectedCount) {
-    console.warn('[JSON解析]', providerInfo, '按序号解析失败，尝试按空行分割');
-    let parts = result.split(/\n\s*\n/).map(s => s.trim()).filter(s => s.length > 0);
-    parts = parts.map(part => part.replace(/^\[\d+\]\s*/, ''));
-    console.log('[JSON解析]', providerInfo, '按空行解析到', parts.length, '个结果');
-    return parts.slice(0, expectedCount);
-  }
-  
-  return results;
+  throw new Error(`[JSON解析] ${providerInfo} 未能从JSON中提取到有效的translations数组`);
 }
