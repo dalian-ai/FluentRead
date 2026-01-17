@@ -19,8 +19,6 @@
 - 更清晰的错误堆栈追踪
 - **文件**: `entrypoints/service/unified.ts`
 
-### 3. 添加连接测试功能
-**新增**: `testServiceConnection()` 函数用于测试服务连接
 
 ## 如何解决连接错误
 

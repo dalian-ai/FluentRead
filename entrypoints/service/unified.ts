@@ -75,49 +75,6 @@ function convertTextToJsonFormat(text: string): string {
     }
 }
 
-/**
- * 测试服务连接
- */
-export async function testServiceConnection(service: string): Promise<{ success: boolean; message: string; url: string }> {
-    try {
-        const baseURL = config.proxy[service] || urls[service];
-        const apiKey = config.token[service];
-        
-        console.log(`[unified] 测试连接 [Service: ${service}] [URL: ${baseURL}]`);
-        
-        // 尝试创建一个简单的请求来测试连接
-        const testUrl = baseURL.replace('/chat/completions', '/models').replace('/v1/v1/', '/v1/');
-        
-        const response = await fetch(testUrl, {
-            method: 'GET',
-            headers: apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {},
-        }).catch(err => {
-            return { ok: false, status: 0, statusText: err.message };
-        });
-        
-        if (response.ok) {
-            return {
-                success: true,
-                message: '连接成功',
-                url: baseURL
-            };
-        } else {
-            return {
-                success: false,
-                message: `连接失败: ${response.status} ${response.statusText}`,
-                url: baseURL
-            };
-        }
-    } catch (error) {
-        const baseURL = config.proxy[service] || urls[service];
-        return {
-            success: false,
-            message: error instanceof Error ? error.message : String(error),
-            url: baseURL
-        };
-    }
-}
-
 // 获取模型名称
 function getModelName(service: string): string {
     const customModelString = 'custom';
@@ -130,7 +87,7 @@ function getModelName(service: string): string {
 }
 
 // 获取temperature
-function getTemperature(service: string, model: string): number {
+function getTemperature(service: string, model: string): number | undefined {
     if (service === services.deepseek && model === 'deepseek-reasoner') {
         return undefined; // deepseek-reasoner不支持temperature
     }
@@ -232,26 +189,42 @@ export async function unifiedTranslate(message: any): Promise<string> {
         // 获取模型和参数
         const model = getModelName(service);
         const temperature = getTemperature(service, model);
-        const messages = buildMessages(message.origin, isBatch);
+        
+        // 构建输入文本
+        const system = config.system_role[config.service] || '你是一个专业的翻译助手';
+        let input: string;
+        if (isBatch) {
+            input = `${system}\n\n请将以下带序号的文本翻译成${config.to}。每个翻译项必须包含对应的序号(index)和译文(text)。\n\n待翻译内容：\n${message.origin}`;
+        } else {
+            input = `${system}\n\n请将以下文本翻译成${config.to}：\n\n${message.origin}`;
+        }
         
         // 某些端点不支持 response_format，仅对支持的服务使用
         const supportsResponseFormat = service !== services.custom;
         const responseFormat = supportsResponseFormat ? buildResponseFormat(isBatch) : undefined;
         
-        // 调用API
-        const completion = await client.chat.completions.create({
+        // 调用 Responses API
+        const completion = await (client as any).responses.create({
             model,
-            messages,
+            input,
             temperature,
             ...(responseFormat && { response_format: responseFormat }),
         });
         
-        // 提取结果
-        const content = completion.choices[0]?.message?.content;
+        // 提取结果 - 优先使用 output_parsed（结构化输出）
+        let content: string;
         const actualProvider = (completion as any).provider || service;
         
-        if (!content) {
-            console.error(`[unified] API返回的content为空 [Provider: ${actualProvider}]:`, completion);
+        if (completion.output_parsed) {
+            // 使用结构化解析结果
+            console.log(`[unified] 使用结构化输出 [Service: ${service}] [Provider: ${actualProvider}]`);
+            content = JSON.stringify(completion.output_parsed);
+        } else if (completion.output) {
+            // 降级到文本输出
+            console.log(`[unified] 使用文本输出 [Service: ${service}] [Provider: ${actualProvider}]`);
+            content = typeof completion.output === 'string' ? completion.output : JSON.stringify(completion.output);
+        } else {
+            console.error(`[unified] API返回的内容为空 [Provider: ${actualProvider}]:`, completion);
             throw new Error(`[${actualProvider}] API返回的内容为空`);
         }
         
@@ -262,7 +235,7 @@ export async function unifiedTranslate(message: any): Promise<string> {
         }
         
         // 对于不支持 response_format 的服务，需要手动转换格式
-        if (isBatch && service === services.custom) {
+        if (isBatch && service === services.custom && !completion.output_parsed) {
             return convertTextToJsonFormat(content);
         }
         

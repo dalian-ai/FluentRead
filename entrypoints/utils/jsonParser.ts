@@ -149,9 +149,11 @@ export function parseBatchTranslations(result: string, expectedCount: number, pr
     console.warn('[JSON解析]', providerInfo, '原始内容前500字符:', result.substring(0, 500));
   }
   
-  // 回退1：尝试按序号分割 - 匹配行首的 [数字]
+  // 回退1：尝试按序号分割
   const results: string[] = [];
-  const pattern = /^\[(\d+)\]\s*([\s\S]*?)(?=\n\s*\[\d+\]|\s*$)/gm;
+  
+  // 尝试格式1: [数字] 译文
+  let pattern = /^\[(\d+)\]\s*([\s\S]*?)(?=\n\s*\[\d+\]|\s*$)/gm;
   let match;
   
   while ((match = pattern.exec(result)) !== null) {
@@ -159,6 +161,39 @@ export function parseBatchTranslations(result: string, expectedCount: number, pr
     let text = match[2].trim();
     text = text.replace(/^\[\d+\]\s*/, '');
     results[index] = text;
+  }
+  
+  // 如果[数字]格式没有匹配到，尝试格式2: 数字. 译文（带换行符的列表格式）
+  if (results.length === 0) {
+    // 先按换行符分割成行
+    const lines = result.split('\n');
+    let currentIndex = -1;
+    let currentText = '';
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      // 匹配行首的 "数字. " 格式
+      const numberMatch = line.match(/^(\d+)\.\s+(.*)$/);
+      if (numberMatch) {
+        // 保存上一个翻译
+        if (currentIndex >= 0 && currentText) {
+          results[currentIndex] = currentText.trim();
+        }
+        
+        // 开始新的翻译
+        currentIndex = parseInt(numberMatch[1]) - 1;
+        currentText = numberMatch[2];
+      } else if (currentIndex >= 0 && line) {
+        // 继续当前翻译的内容（多行翻译）
+        currentText += '\n' + line;
+      }
+    }
+    
+    // 保存最后一个翻译
+    if (currentIndex >= 0 && currentText) {
+      results[currentIndex] = currentText.trim();
+    }
   }
   
   console.log('[JSON解析]', providerInfo, '按序号解析到', results.length, '个结果');

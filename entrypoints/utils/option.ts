@@ -229,7 +229,7 @@ export const defaultOption = {
     display: 1,
     hotkey: "Control",
     service: services.custom,
-    custom: "https://text-to-image-cf.dal.workers.dev/v1/chat/completions",
+    custom: "https://text-to-image-cf.dal.workers.dev/v1",
     system_role:
         "Professional translation engine.",
     user_role: `Translate to {{to}}. Keep proper nouns/codes unchanged. No explanations:
