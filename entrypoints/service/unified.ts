@@ -100,12 +100,16 @@ function buildMessages(origin: string, isBatch: boolean) {
     
     let user: string;
     if (isBatch) {
-        user = `请将以下带序号的文本翻译成${config.to}。每个翻译项必须包含对应的序号(index)和译文(text)。
+        // 对于支持 Structured Output 的服务，提示词需要明确要求 JSON
+        const outputRequirement = '请严格按照JSON格式输出，不要包含任何Markdown标记或其他文本。';
+            
+        user = `请将以下带序号的文本翻译成${config.to}。${outputRequirement}
 
 待翻译内容：
 ${origin}`;
     } else {
-        user = `请将以下文本翻译成${config.to}：
+        const outputRequirement = '请严格按照JSON格式输出。';
+        user = `请将以下文本翻译成${config.to}${outputRequirement ? '，' + outputRequirement : ''}：
 
 ${origin}`;
     }
@@ -190,14 +194,8 @@ export async function unifiedTranslate(message: any): Promise<string> {
         const model = getModelName(service);
         const temperature = getTemperature(service, model);
         
-        // 构建输入文本
-        const system = config.system_role[config.service] || '你是一个专业的翻译助手';
-        let input: string;
-        if (isBatch) {
-            input = `${system}\n\n请将以下带序号的文本翻译成${config.to}。每个翻译项必须包含对应的序号(index)和译文(text)。\n\n待翻译内容：\n${message.origin}`;
-        } else {
-            input = `${system}\n\n请将以下文本翻译成${config.to}：\n\n${message.origin}`;
-        }
+        // 构建messages
+        const messages = buildMessages(message.origin, isBatch);
         
         // 某些端点不支持 response_format，仅对支持的服务使用
         const supportsResponseFormat = true; // service !== services.custom;
@@ -206,7 +204,7 @@ export async function unifiedTranslate(message: any): Promise<string> {
         // 调用 Responses API
         const completion = await (client as any).responses.create({
             model,
-            input,
+            messages,
             temperature,
             ...(responseFormat && { response_format: responseFormat }),
         });
@@ -244,7 +242,7 @@ export async function unifiedTranslate(message: any): Promise<string> {
         }
         
         // 对于不支持 response_format 的服务，需要手动转换格式
-        if (isBatch && service === services.custom && !completion.output_parsed) {
+        if (isBatch && !completion.output_parsed) {
             return convertTextToJsonFormat(content);
         }
         
