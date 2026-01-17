@@ -3,7 +3,8 @@
  * 所有provider都通过这个统一接口调用
  */
 
-import { generateText, Output } from 'ai';
+import { generateObject } from 'ai';
+import { createOpenAI } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { config } from '@/entrypoints/utils/config';
 import { urls } from '../utils/constant';
@@ -28,17 +29,13 @@ function getTemperature(service: string, model: string): number | undefined {
     return service === services.deepseek ? 0.7 : 1.0;
 }
 
-// 构建 prompt（只包含用户消息）
+// 构建 prompt（语义约束，不重复结构）
 function buildUserPrompt(origin: string, isBatch: boolean): string {
     if (isBatch) {
-        return `请将以下带序号的文本翻译成${config.to}。
-
-待翻译内容：
-${origin}`;
+        // Schema 已经定义了结构，prompt 只说语义
+        return `Translate the following numbered text to ${config.to}:\n\n${origin}`;
     } else {
-        return `请将以下文本翻译成${config.to}：
-
-${origin}`;
+        return `Translate to ${config.to}:\n\n${origin}`;
     }
 }
 
@@ -76,53 +73,45 @@ export async function unifiedTranslate(message: any): Promise<string> {
         const modelName = getModelName(service);
         const temperature = getTemperature(service, modelName);
         
-        // 构建 provider/model 格式
-        // 对于 custom service，直接使用 baseURL
-        let modelString: string;
-        if (service === services.custom) {
-            // 自定义服务需要特殊处理
-            modelString = `custom/${modelName}`;
-        } else {
-            modelString = `${service}/${modelName}`;
-        }
+        // 创建 OpenAI provider（支持 Structured Outputs）
+        const provider = createOpenAI({
+            baseURL: baseURL,
+            apiKey: apiKey,
+        });
         
-        // 构建 system 和 user prompt
-        const systemPrompt = config.system_role[config.service] || 'You are a professional translation assistant';
+        // 构建 prompt（简洁，只定义语义）
+        const systemPrompt = 'You are a professional translator.';
         const userPrompt = buildUserPrompt(message.origin, isBatch);
         const schema = buildSchema(isBatch);
         
-        console.log(`[unified] 使用 AI SDK 调用模型: ${modelString}`);
+        console.log(`[unified] Service: ${service}, Model: ${modelName}`);
+        console.log(`[unified] Base URL: ${baseURL}`);
+        console.log(`[unified] Batch mode: ${isBatch}`);
+        console.log(`[unified] Prompt preview:`, userPrompt.substring(0, 200));
         
-        // 使用 AI SDK 的 generateText 和 structured output
-        const { output } = await generateText({
-            model: modelString,
+        // 使用 AI SDK 的 generateObject 和 schema（参考 Vercel AI SDK 示例）
+        const result = await generateObject({
+            model: provider(modelName),
             system: systemPrompt,
             prompt: userPrompt,
-            output: Output.object({
-                schema: schema
-            }),
+            schema: schema,
             temperature: temperature,
-            // 传递自定义配置
-            ...(service === services.custom && {
-                experimental_providerConfig: {
-                    baseURL,
-                    apiKey,
-                }
-            }),
-            ...(service !== services.custom && {
-                apiKey: apiKey,
-            })
         });
         
+        console.log(`[unified] 完整结果:`, result);
+        console.log(`[unified] object:`, result.object);
+        console.log(`[unified] usage:`, result.usage);
+        console.log(`[unified] finishReason:`, result.finishReason);
+        
         // 返回 JSON 字符串
-        const result = JSON.stringify(output);
+        const resultJson = JSON.stringify(result.object);
         
         if (isBatch) {
             console.log(`[unified] 批量翻译成功 [Service: ${service}]`);
-            console.log(`[unified] 结果前500字符:`, result.substring(0, 500));
+            console.log(`[unified] 结果前500字符:`, resultJson.substring(0, 500));
         }
         
-        return result;
+        return resultJson;
         
     } catch (error) {
         const service = config.service;
