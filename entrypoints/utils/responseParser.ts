@@ -74,19 +74,22 @@ export function cleanJsonString(rawContent: string): string {
 /**
  * 尝试修复不完整的 JSON（处理截断情况）
  */
-export function repairTruncatedJson(content: string): string | null {
+export function repairTruncatedJson(content: string, debug: boolean = false): string | null {
   if (!content.includes('"translations"')) {
+    if (debug) console.log('[Repair] No translations field found');
     return null;
   }
   
   try {
-    // 提取 translations 数组部分
-    const translationsMatch = content.match(/"translations"\s*:\s*\[([\s\S]*?)(?:\]|}|$)/);
+    // 提取 translations 数组部分 - 使用非贪婪匹配并允许跨行
+    const translationsMatch = content.match(/"translations"\s*:\s*\[([\s\S]*)/);
     if (!translationsMatch) {
+      if (debug) console.log('[Repair] Failed to match translations array');
       return null;
     }
     
     let arrayContent = translationsMatch[1];
+    if (debug) console.log(`[Repair] Array content length: ${arrayContent.length}, first 100 chars:`, arrayContent.substring(0, 100));
     
     // 修复可能不完整的最后一个对象
     // 找到所有完整的对象（以 } 结尾）
@@ -95,6 +98,7 @@ export function repairTruncatedJson(content: string): string | null {
     let currentObj = '';
     let inString = false;
     let escapeNext = false;
+    let objStarted = false;
     
     for (let i = 0; i < arrayContent.length; i++) {
       const char = arrayContent[i];
@@ -116,26 +120,56 @@ export function repairTruncatedJson(content: string): string | null {
       }
       
       if (!inString) {
-        if (char === '{') depth++;
+        if (char === '{') {
+          depth++;
+          objStarted = true;
+        }
         if (char === '}') depth--;
+        
+        // 跳过对象开始前的逗号和空白
+        if (!objStarted && (char === ',' || char === '\n' || char === ' ' || char === '\t')) {
+          continue;
+        }
       }
       
       currentObj += char;
       
       // 找到一个完整的对象
-      if (!inString && depth === 0 && currentObj.trim().endsWith('}')) {
-        completeObjects.push(currentObj.trim().replace(/,\s*$/, '')); // 移除尾部逗号
+      if (!inString && depth === 0 && objStarted && currentObj.trim().endsWith('}')) {
+        const objStr = currentObj.trim();
+        
+        // 修复 "index": "1" 这种字符串 index 为数字
+        const fixedObj = objStr.replace(/"index"\s*:\s*"(\d+)"/g, '"index":$1');
+        
+        // 验证对象是否有效
+        try {
+          const testObj = JSON.parse(fixedObj);
+          if (testObj.index !== undefined && testObj.text !== undefined) {
+            completeObjects.push(fixedObj);
+            if (debug) console.log(`[Repair] Found valid object ${completeObjects.length}: index=${testObj.index}`);
+          } else {
+            if (debug) console.log(`[Repair] Invalid object (missing fields):`, testObj);
+          }
+        } catch (e) {
+          if (debug) console.log(`[Repair] Failed to parse object:`, objStr.substring(0, 100));
+        }
+        
         currentObj = '';
+        objStarted = false;
       }
     }
     
-    if (completeObjects.length === 0) {
-      return null;
+    if (debug) console.log(`[Repair] Total valid objects found: ${completeObjects.length}`);
+    
+    // 即使只有部分对象也返回
+    if (completeObjects.length > 0) {
+      // 构造完整的 JSON
+      return `{"translations":[${completeObjects.join(',')}]}`;
     }
     
-    // 构造完整的 JSON
-    return `{"translations":[${completeObjects.join(',')}]}`;
+    return null;
   } catch (error) {
+    if (debug) console.log('[Repair] Exception:', error);
     return null;
   }
 }

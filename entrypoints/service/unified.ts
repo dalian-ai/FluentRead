@@ -176,15 +176,17 @@ export async function unifiedTranslate(message: any): Promise<string> {
 
 你的腔调：专业而不生硬，准确又有温度。像一个既懂技术也懂人文的人在写作，不是在翻译，而是在用中文重新讲述一个故事。
 
-**重要要求：**
+**严格要求 - 必须遵守：**
 1. 翻译结果的 text 字段中不要包含序号标记 [1], [2] 等，只返回纯净的翻译文本
-2. **不要进行推理（reasoning）或展示思考过程**，这是一个直接的翻译任务
-3. **不要过度思考**，直接根据上述风格指南返回翻译结果即可
-4. 直接输出 JSON 格式的翻译结果，不要任何额外的解释、分析或思考过程
+2. **禁止输出任何推理过程（reasoning）、思考过程或分析**
+3. **这是一个简单的翻译任务，不需要任何额外思考**
+4. **只输出纯 JSON 对象**，格式：{"translations": [{"index": number, "text": "翻译文本"}]}
+5. **不要输出 markdown 代码块**，不要三个反引号包裹，不要任何解释
+6. **立即开始翻译，直接返回 JSON**
 
-请返回有效的 JSON 对象，结构为：{"translations": [{"index": number, "text": "翻译文本（不含序号）"}]}。不要包含任何解释或 markdown 代码块。`;
+输出示例：{"translations":[{"index":0,"text":"示例翻译"},{"index":1,"text":"另一个翻译"}]}`;
 
-     const payload = {
+     const payload: any = {
       model: modelName,
       provider: service,
       input: [
@@ -198,13 +200,37 @@ export async function unifiedTranslate(message: any): Promise<string> {
         }
       ],
       temperature: 0,
-      extra_body: {
-        include_reasoning: false 
-      },
-      text: {
-        format: { type: "json_object" }
-      }
+      max_tokens: 4096,  // 限制输出长度，防止超出 token 限制
+      stream: false
     };
+    
+    // 针对不同模型添加禁用 reasoning 的参数
+    const modelLower = modelName.toLowerCase();
+    
+    // Nemotron/Nvidia 模型
+    if (modelLower.includes('nemotron') || modelLower.includes('nvidia')) {
+      payload.extra_body = {
+        reasoning: false,
+        include_reasoning: false,
+        enable_thinking: false
+      };
+    }
+    
+    // OpenAI o1 系列
+    if (modelLower.includes('o1')) {
+      payload.reasoning_effort = 'low';  // 最低推理级别
+      payload.store = false;
+    }
+    
+    // DeepSeek R1 系列
+    if (modelLower.includes('deepseek') && modelLower.includes('r1')) {
+      payload.reasoning = false;
+    }
+    
+    // 通用 JSON 格式要求（如果模型支持）
+    if (!modelLower.includes('claude')) {  // Claude 不支持此参数
+      payload.response_format = { type: "json_object" };
+    }
 
     // 3. 发起请求
     const response = await fetch(`${baseURL.replace(/\/$/, '')}/responses`, {
