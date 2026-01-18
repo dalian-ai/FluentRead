@@ -207,24 +207,17 @@ export async function unifiedTranslate(message: any): Promise<string> {
     // 针对不同模型添加禁用 reasoning 的参数
     const modelLower = modelName.toLowerCase();
     
-    // Nemotron/Nvidia 模型
-    if (modelLower.includes('nemotron') || modelLower.includes('nvidia')) {
-      payload.extra_body = {
-        reasoning: false,
-        include_reasoning: false,
-        enable_thinking: false
+    // /v1/responses 端点的标准 reasoning 控制参数
+    // 对于所有推理模型（Nemotron, o1, DeepSeek R1 等），使用统一的标准格式
+    if (modelLower.includes('nemotron') || 
+        modelLower.includes('nvidia') || 
+        modelLower.includes('o1') ||
+        (modelLower.includes('deepseek') && modelLower.includes('r1'))) {
+      
+      // 标准写法：reasoning.effort = "none" （最通用、最安全）
+      payload.reasoning = {
+        effort: "none"
       };
-    }
-    
-    // OpenAI o1 系列
-    if (modelLower.includes('o1')) {
-      payload.reasoning_effort = 'low';  // 最低推理级别
-      payload.store = false;
-    }
-    
-    // DeepSeek R1 系列
-    if (modelLower.includes('deepseek') && modelLower.includes('r1')) {
-      payload.reasoning = false;
     }
     
     // 通用 JSON 格式要求（如果模型支持）
