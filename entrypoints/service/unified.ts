@@ -177,7 +177,7 @@ export async function unifiedTranslate(message: any): Promise<string> {
 
 请返回有效的 JSON 对象，结构为：{"translations": [{"index": number, "text": "string"}]}。不要包含任何解释或 markdown 代码块。`;
 
-    const payload = {
+     const payload = {
       model: modelName,
       provider: service,
       input: [
@@ -216,14 +216,24 @@ export async function unifiedTranslate(message: any): Promise<string> {
 
     const apiResponse = await response.json();
 
-    // 4. 提取内容 (多层兼容提取)
+    // 4. 检查是否因token限制被截断
+    const finishReason = apiResponse.choices?.[0]?.finish_reason;
+    if (finishReason === 'length') {
+      console.warn('[Frontend] 警告：响应因达到最大token限制而被截断');
+    }
+
+    // 5. 提取内容 (多层兼容提取)
     let rawContent = apiResponse.choices?.[0]?.message?.content || 
                      apiResponse.output?.[0]?.content || 
                      apiResponse.content || "";
 
     if (!rawContent) throw new Error("AI returned empty content");
 
-    // 5. 处理双层JSON编码问题：有些API会将JSON结果再次序列化成字符串
+    // 记录原始内容类型和长度
+    console.log('[Frontend] 原始内容类型:', typeof rawContent, '长度:', 
+                typeof rawContent === 'string' ? rawContent.length : JSON.stringify(rawContent).length);
+
+    // 6. 处理双层JSON编码问题：有些API会将JSON结果再次序列化成字符串
     // 检查content是否是一个JSON字符串（以 { 开头的字符串）
     if (typeof rawContent === 'string' && rawContent.trim().startsWith('{')) {
       try {
@@ -238,7 +248,7 @@ export async function unifiedTranslate(message: any): Promise<string> {
       }
     }
 
-    // 6. 结构化解析 (增强防御力)
+    // 7. 结构化解析 (增强防御力)
     let finalResult;
     try {
       /**
@@ -270,17 +280,54 @@ export async function unifiedTranslate(message: any): Promise<string> {
 
     } catch (e) {
       console.warn("[Frontend] JSON 结构化解析失败，启动正则回退...", e);
+      console.log("[Frontend] 失败的内容类型:", typeof rawContent);
+      console.log("[Frontend] 失败的内容（前500字符）:", String(rawContent).substring(0, 500));
 
       /**
        * ✨ 增强版正则回退
        * 考虑到 content 内部可能有换行符，匹配模式采用全局搜索
        */
       const translations: { index: number; text: string }[] = [];
+      const contentStr = typeof rawContent === 'object' ? JSON.stringify(rawContent) : String(rawContent);
+      
+      // 方案1: 尝试修复不完整的JSON（如果JSON被截断）
+      if (contentStr.includes('"translations"')) {
+        try {
+          // 提取 translations 数组部分
+          const translationsMatch = contentStr.match(/"translations"\s*:\s*\[([\s\S]*?)(?:\]|}|$)/);
+          if (translationsMatch) {
+            let arrayContent = translationsMatch[1];
+            
+            // 修复可能不完整的最后一个对象
+            // 如果最后没有闭合的 }，尝试补全
+            if (!arrayContent.trim().endsWith('}')) {
+              const lastComma = arrayContent.lastIndexOf(',');
+              if (lastComma > 0) {
+                // 截断到最后一个完整的对象
+                arrayContent = arrayContent.substring(0, lastComma);
+              }
+            }
+            
+            // 构造完整的JSON
+            const repairedJson = `{"translations":[${arrayContent}]}`;
+            console.log('[Frontend] 尝试修复的JSON:', repairedJson.substring(0, 300));
+            
+            const parsed = JSON.parse(repairedJson);
+            const validated = translationSchema.parse(parsed);
+            console.log('[Frontend] ✓ JSON修复成功，提取到', validated.translations.length, '条翻译');
+            return JSON.stringify(validated);
+          }
+        } catch (repairError) {
+          console.warn('[Frontend] JSON修复失败:', repairError);
+        }
+      }
+      
+      // 方案2: 正则提取
       // 匹配 [数字] 内容，直到下一个 [数字] 或结尾
       const lineRegex = /\[(\d+)\]\s*([\s\S]*?)(?=\s*\[\d+\]|$)/g;
       let match;
 
-      while ((match = lineRegex.exec(String(rawContent))) !== null) {
+      while ((match = lineRegex.exec(contentStr)) !== null) {
         if (match[1] && match[2]) {
           translations.push({
             index: parseInt(match[1], 10),
@@ -290,13 +337,15 @@ export async function unifiedTranslate(message: any): Promise<string> {
       }
 
       if (translations.length > 0) {
+        console.log('[Frontend] ✓ 正则回退成功，提取到', translations.length, '条翻译');
         finalResult = { translations };
       } else {
-        throw new Error(`Content unrecognizable: ${rawContent.substring(0, 100)}`);
+        console.error('[Frontend] 完整的不可识别内容:', rawContent);
+        throw new Error(`Content unrecognizable: ${String(rawContent).substring(0, 200)}...`);
       }
     }
 
-    // 6. 返回序列化后的标准结果
+    // 8. 返回序列化后的标准结果
     return JSON.stringify(finalResult);
 
   } catch (error: any) {

@@ -79,6 +79,27 @@ export function grabAllNode(rootNode: Node): Element[] {
                     return NodeFilter.FILTER_REJECT;
                 }
 
+                // ✨ 特殊处理：如果是 <p> 标签且只包含内联元素，直接接受
+                // 这样可以保证段落作为整体被翻译，而不是拆分成多个 span
+                if (tag === 'p') {
+                    // 检查是否只包含内联元素和文本
+                    let onlyInlineChildren = true;
+                    for (const child of node.childNodes) {
+                        if (child.nodeType === Node.ELEMENT_NODE) {
+                            const childTag = (child as Element).tagName.toLowerCase();
+                            if (!inlineSet.has(childTag)) {
+                                onlyInlineChildren = false;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // 如果只包含内联元素和文本，接受这个 <p> 标签
+                    if (onlyInlineChildren && node.textContent?.trim()) {
+                        return NodeFilter.FILTER_ACCEPT;
+                    }
+                }
+                
                 // 检查是否只包含有效文本内容
                 let hasText = false;
                 let hasElement = false;
