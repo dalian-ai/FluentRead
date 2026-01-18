@@ -108,101 +108,110 @@ export const translationSchema = z.object({
     )
 });
 
-
-
 /**
- * 统一翻译函数
- * 具备自动修复功能的结构化解析器
+ * 统一翻译函数 (适配通用后端网关)
  */
 export async function unifiedTranslate(message: any): Promise<string> {
-    try {
-        const service = config.service;
-        const baseURL = config.proxy[service] || urls[service];
-        const apiKey = config.token[service];
-        const modelName = getModelName(service);
+  try {
+    const service = config.service;
+    const baseURL = config.proxy[service] || urls[service];
+    const apiKey = config.token[service];
+    const modelName = getModelName(service);
 
-        // 1. 构造纯文本输入
-        const originText = Array.isArray(message.origin)
-            ? message.origin.map((item: any, i: number) => {
-                const content = typeof item === 'string' ? item : (item.text || item.input_text || "");
-                return `[${i}] ${content}`;
-            }).join('\n')
-            : String(message.origin);
+    // 2. 预处理文本：添加索引标记
+    const originText = Array.isArray(message.origin)
+      ? message.origin.map((item: any, i: number) => {
+          const content = typeof item === 'string' ? item : (item.text || "");
+          return `[${i}] ${content}`;
+        }).join('\n')
+      : String(message.origin);
 
-        // 2. 构造请求 Payload
-        const payload = {
-            model: modelName,
-            provider: service,
-            input: originText,
-            temperature: 0, // 设为 0 强制模型保持严谨
-            text: {
-                format: { type: "json_object" }
-            }
-        };
-
-        const response = await fetch(`${baseURL.replace(/\/$/, '')}/responses`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        });
-
-        const apiResponse = await response.json();
-        
-        // 3. 提取原始文本内容
-        const rawContent = apiResponse.choices?.[0]?.message?.content || 
-                           apiResponse.output?.[0]?.content || 
-                           apiResponse.content || "";
-
-        if (!rawContent) throw new Error("AI returned empty content");
-
-        let validatedData;
-
-        // 4. 尝试解析 (带容错逻辑)
-        try {
-            // 清理 Markdown 代码块
-            const cleanText = typeof rawContent === 'string' 
-                ? rawContent.replace(/```json\n?|\n?```/g, '').trim() 
-                : rawContent;
-            
-            const parsed = typeof cleanText === 'string' ? JSON.parse(cleanText) : cleanText;
-            validatedData = translationSchema.parse(parsed);
-
-        } catch (e) {
-            console.warn("[unified] JSON 解析失败，尝试正则提取...", e);
-
-            // 5. 兜底方案：正则提取模式
-            // 匹配类似 "[1] 翻译内容" 的每一行
-            const lines = rawContent.split('\n');
-            const translations: { index: number; text: string }[] = [];
-            
-            for (const line of lines) {
-                // 正则匹配：以 [数字] 开头的行
-                const match = line.match(/^\[(\d+)\]\s*(.*)/);
-                if (match) {
-                    translations.push({
-                        index: parseInt(match[1], 10),
-                        text: match[2].trim()
-                    });
-                }
-            }
-
-            if (translations.length > 0) {
-                validatedData = { translations };
-                console.log(`[unified] 成功通过正则提取了 ${translations.length} 项翻译`);
-            } else {
-                // 如果正则也提取不到，说明模型彻底胡言乱语了
-                throw new Error(`AI 返回内容无法识别: ${rawContent.substring(0, 100)}...`);
-            }
+    // 3. 构造通用 Payload (发送消息数组给 General 后端)
+    const payload = {
+      model: modelName,
+      provider: service,
+      // ✨ 关键：在通用模式下，前端必须提供完整的 Context
+      input: [
+        {
+          role: "system",
+          content: "You are a professional translator. Respond ONLY with a valid JSON object. " +
+                   "Structure: {\"translations\": [{\"index\": number, \"text\": \"string\"}]}"
+        },
+        {
+          role: "user",
+          content: `Translate the following text to Chinese, preserving the [index] markers and JSON structure:\n\n${originText}`
         }
+      ],
+      temperature: 0,
+      text: {
+        format: { type: "json_object" }
+      }
+    };
 
-        // 6. 返回经过校验的 JSON 字符串
-        return JSON.stringify(validatedData);
+    // 4. 发起请求
+    const response = await fetch(`${baseURL.replace(/\/$/, '')}/responses`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
 
-    } catch (error: any) {
-        console.error('[unified] 翻译逻辑崩溃:', error);
-        throw error;
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`Server Error (${response.status}): ${err}`);
     }
+
+    const apiResponse = await response.json();
+
+    // 5. 提取内容 (兼容 OpenAI/DeepSeek/Zhipu 等返回结构)
+    const rawContent = apiResponse.choices?.[0]?.message?.content || 
+                       apiResponse.output?.[0]?.content || 
+                       apiResponse.content || "";
+
+    if (!rawContent) throw new Error("AI returned empty content");
+
+    // 6. 结构化解析与正则防御
+    let finalResult;
+    try {
+      // 清理 Markdown 代码块并解析 JSON
+      const cleanJson = typeof rawContent === 'string' 
+        ? rawContent.replace(/```json\n?|\n?```/g, '').trim() 
+        : rawContent;
+      
+      const parsed = typeof cleanJson === 'string' ? JSON.parse(cleanJson) : cleanJson;
+      finalResult = translationSchema.parse(parsed);
+
+    } catch (e) {
+      console.warn("[Frontend] JSON Parse failed, falling back to Regex...", e);
+
+      // 正则回退解析逻辑：处理 AI 直接吐出 "[0] 翻译" 的情况
+      const lines = String(rawContent).split('\n');
+      const translations: { index: number; text: string }[] = [];
+      
+      for (const line of lines) {
+        const match = line.match(/^\[(\d+)\]\s*(.*)/);
+        if (match) {
+          translations.push({
+            index: parseInt(match[1], 10),
+            text: match[2].trim()
+          });
+        }
+      }
+
+      if (translations.length > 0) {
+        finalResult = { translations };
+      } else {
+        throw new Error(`Content unrecognizable: ${rawContent.substring(0, 100)}`);
+      }
+    }
+
+    // 7. 返回序列化后的标准结果
+    return JSON.stringify(finalResult);
+
+  } catch (error: any) {
+    console.error('[Frontend] unifiedTranslate Error:', error);
+    throw error;
+  }
 }
