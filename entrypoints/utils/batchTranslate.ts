@@ -208,7 +208,8 @@ async function translateBatch(tasks: BatchTask[]) {
       cache.localSet(task.origin, translatedText);
     }
     
-    task.resolve(translatedText);
+    // 返回包含 index 的结果
+    task.resolve({ text: translatedText, index: i });
   }
 }
 
@@ -217,11 +218,16 @@ async function translateBatch(tasks: BatchTask[]) {
 /**
  * 添加翻译任务到批处理队列
  */
-export function batchTranslate(origin: string, context: string = document.title): Promise<string> {
+export interface TranslationResult {
+  text: string;
+  index?: number;
+}
+
+export function batchTranslate(origin: string, context: string = document.title): Promise<TranslationResult> {
   return new Promise((resolve, reject) => {
     // 验证文本有效性
     if (!isValidText(origin)) {
-      resolve(origin); // 返回原文
+      resolve({ text: origin }); // 返回原文
       return;
     }
     
@@ -229,7 +235,7 @@ export function batchTranslate(origin: string, context: string = document.title)
     if (config.useCache) {
       const cachedResult = cache.localGet(origin);
       if (cachedResult) {
-        resolve(cachedResult);
+        resolve({ text: cachedResult });
         return;
       }
     }
@@ -479,7 +485,10 @@ export async function batchTranslateAllPageContent(
     
     // 返回翻译 Promise
     return batchTranslate(text, document.title)
-      .then(translatedText => {
+      .then(result => {
+        const translatedText = result.text;
+        const resultIndex = result.index;
+        
         if (!translatedText || translatedText === text) {
           completedCount++;
           console.log(`[FluentRead] 进度: ${completedCount}/${totalCount} (跳过: ${nodeId})`);
@@ -494,6 +503,11 @@ export async function batchTranslateAllPageContent(
             bilingualDiv.className = 'fluent-read-bilingual-content';
             bilingualDiv.textContent = translatedText;
             
+            // 添加 data-fr-node-result-id 属性
+            if (resultIndex !== undefined) {
+              bilingualDiv.setAttribute('data-fr-node-result-id', String(resultIndex));
+            }
+            
             node.innerHTML = '';
             
             const originalDiv = document.createElement('div');
@@ -506,6 +520,11 @@ export async function batchTranslateAllPageContent(
           } else {
             // 单语显示
             node.textContent = translatedText;
+            
+            // 添加 data-fr-node-result-id 属性
+            if (resultIndex !== undefined) {
+              node.setAttribute('data-fr-node-result-id', String(resultIndex));
+            }
           }
           
           completedCount++;

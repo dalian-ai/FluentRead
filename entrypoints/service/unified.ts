@@ -297,6 +297,7 @@ export async function unifiedTranslate(message: any): Promise<string> {
     console.log(`[Frontend] [RequestId: ${requestId}] 解析方法: ${parseResult.debugInfo?.parseMethod}`);
     
     // 7. 返回结果（包含 metadata）
+    // 前端可使用 translations[i].index 作为 data-fr-node-result-id
     const resultWithMetadata = {
       ...parseResult.data,
       _metadata: { requestId }
