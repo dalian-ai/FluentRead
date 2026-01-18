@@ -544,7 +544,22 @@ function getAllTextNodes(root: Element): Element[] {
   const result: Element[] = [];
   const skipTags = new Set(['script', 'style', 'noscript', 'iframe', 'code', 'pre', 'svg']);
   
-  function traverse(element: Element) {
+  // 块级元素标签集合 - 这些元素应该作为独立的翻译单元
+  const blockTags = new Set([
+    'p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'li', 'dd', 'dt', 'blockquote', 'figcaption',
+    'td', 'th', 'article', 'section', 'header', 'footer',
+    'aside', 'nav', 'main'
+  ]);
+  
+  // 内联元素标签集合 - 这些元素不应该作为独立的翻译单元
+  const inlineTags = new Set([
+    'a', 'span', 'strong', 'b', 'em', 'i', 'u', 'sup', 'sub',
+    'mark', 'small', 'del', 'ins', 'code', 'kbd', 'samp',
+    'abbr', 'cite', 'q', 'dfn', 'time', 'var'
+  ]);
+  
+  function traverse(element: Element, parentIsBlock: boolean = false) {
     const tag = element.tagName?.toLowerCase();
     
     // 跳过不需要翻译的标签
@@ -552,22 +567,54 @@ function getAllTextNodes(root: Element): Element[] {
     if (element.classList?.contains('notranslate')) return;
     if (element.classList?.contains('sr-only')) return;
     
-    // 检查是否有直接的文本内容
-    let hasDirectText = false;
-    for (const child of element.childNodes) {
-      if (child.nodeType === Node.TEXT_NODE && child.textContent?.trim()) {
-        hasDirectText = true;
-        break;
+    const isBlockElement = blockTags.has(tag);
+    
+    // 如果是块级元素（如 p, div 等），检查其内容
+    if (isBlockElement) {
+      // 检查块级元素是否包含文本内容
+      if (element.textContent?.trim()) {
+        // 检查是否只包含内联元素和文本节点
+        let onlyInlineChildren = true;
+        for (const child of element.children) {
+          const childTag = child.tagName?.toLowerCase();
+          if (!inlineTags.has(childTag)) {
+            onlyInlineChildren = false;
+            break;
+          }
+        }
+        
+        // 如果只包含内联元素和文本，将整个块级元素作为翻译单元
+        if (onlyInlineChildren) {
+          if (!result.includes(element)) {
+            result.push(element);
+          }
+          // 不再遍历子元素，因为整个块作为一个单元
+          return;
+        }
       }
-    }
-    
-    if (hasDirectText && !result.includes(element)) {
-      result.push(element);
-    }
-    
-    // 继续遍历子元素
-    for (const child of element.children) {
-      traverse(child);
+      
+      // 如果块级元素包含其他块级元素，继续遍历子元素
+      for (const child of element.children) {
+        traverse(child, true);
+      }
+    } else {
+      // 对于非块级元素，检查是否有直接的文本内容
+      let hasDirectText = false;
+      for (const child of element.childNodes) {
+        if (child.nodeType === Node.TEXT_NODE && child.textContent?.trim()) {
+          hasDirectText = true;
+          break;
+        }
+      }
+      
+      if (hasDirectText && !result.includes(element)) {
+        result.push(element);
+      }
+      
+      // 继续遍历子元素
+      for (const child of element.children) {
+        traverse(child, parentIsBlock);
+      }
     }
   }
   
