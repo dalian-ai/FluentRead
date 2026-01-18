@@ -175,7 +175,9 @@ export async function unifiedTranslate(message: any): Promise<string> {
 
 你的腔调：专业而不生硬，准确又有温度。像一个既懂技术也懂人文的人在写作，不是在翻译，而是在用中文重新讲述一个故事。
 
-请返回有效的 JSON 对象，结构为：{"translations": [{"index": number, "text": "string"}]}。不要包含任何解释或 markdown 代码块。`;
+**重要：翻译结果的 text 字段中不要包含序号标记 [1], [2] 等，只返回纯净的翻译文本。**
+
+请返回有效的 JSON 对象，结构为：{"translations": [{"index": number, "text": "翻译文本（不含序号）"}]}。不要包含任何解释或 markdown 代码块。`;
 
      const payload = {
       model: modelName,
@@ -214,20 +216,18 @@ export async function unifiedTranslate(message: any): Promise<string> {
       throw new Error(`Server Error (${response.status}): ${err}`);
     }
 
+    // 提取 CF-Ray 作为 requestId（Cloudflare Workers）
+    const cfRay = response.headers.get('cf-ray');
+    
     const apiResponse = await response.json();
 
     // 提取 requestId 用于日志追踪
-    const requestId = apiResponse.$workers?.requestId || apiResponse.$metadata?.requestId || 'unknown';
-    
-    // 如果 requestId 是 unknown，记录完整响应结构以便调试
-    if (requestId === 'unknown') {
-      console.warn('[Frontend] 无法提取 requestId，响应结构:', {
-        hasWorkers: !!apiResponse.$workers,
-        hasMetadata: !!apiResponse.$metadata,
-        topLevelKeys: Object.keys(apiResponse).slice(0, 10),
-        sampleResponse: JSON.stringify(apiResponse).substring(0, 500)
-      });
-    }
+    // 优先级：CF-Ray header > $workers.requestId > $metadata.requestId > response.id > 'unknown'
+    const requestId = cfRay ||
+                      apiResponse.$workers?.requestId || 
+                      apiResponse.$metadata?.requestId || 
+                      apiResponse.id || 
+                      'unknown';
     
     console.log(`[Frontend] [RequestId: ${requestId}] 收到响应，开始处理`);
 
@@ -377,13 +377,28 @@ export async function unifiedTranslate(message: any): Promise<string> {
       }
     }
 
-    // 8. 返回序列化后的标准结果（包含 requestId 用于追踪）
+    // 8. 清理和返回结果
     console.log(`[Frontend] [RequestId: ${requestId}] ✓ 翻译成功，返回 ${finalResult.translations.length} 条结果`);
-    // finalResult 可能已经包含 _metadata（从正则回退路径），需要确保存在
+    
+    // 清理翻译结果：移除可能存在的 [index] 标记
+    const cleanedTranslations = finalResult.translations.map((item: any) => {
+      // 移除文本开头的 [数字] 标记（如 "[1] 文本" -> "文本"）
+      const cleanedText = item.text.replace(/^\[\d+\]\s*/, '');
+      return {
+        index: item.index,
+        text: cleanedText
+      };
+    });
+    
     const resultWithMetadata = {
-      ...finalResult,
+      translations: cleanedTranslations,
       _metadata: { requestId }
     };
+    
+    // 诊断日志：确认返回数据中包含 _metadata
+    console.log(`[Frontend] [RequestId: ${requestId}] 返回数据包含 _metadata:`, !!resultWithMetadata._metadata);
+    console.log(`[Frontend] [RequestId: ${requestId}] 返回数据预览:`, JSON.stringify(resultWithMetadata).substring(0, 200));
+    
     return JSON.stringify(resultWithMetadata);
 
   } catch (error: any) {
