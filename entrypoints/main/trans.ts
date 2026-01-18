@@ -31,7 +31,7 @@ export async function autoTranslateEnglishPage() {
         );
         console.log('[FluentRead] 页面翻译完成');
     } catch (error) {
-        console.error('[FluentRead] 页面翻译失败:', error);
+        console.error('页面翻译失败:', error);
     } finally {
         isTranslating = false;
     }

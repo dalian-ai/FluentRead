@@ -216,10 +216,14 @@ export async function unifiedTranslate(message: any): Promise<string> {
 
     const apiResponse = await response.json();
 
+    // 提取 requestId 用于日志追踪
+    const requestId = apiResponse.$workers?.requestId || apiResponse.$metadata?.requestId || 'unknown';
+    console.log(`[Frontend] [RequestId: ${requestId}] 收到响应，开始处理`);
+
     // 4. 检查是否因token限制被截断
     const finishReason = apiResponse.choices?.[0]?.finish_reason;
     if (finishReason === 'length') {
-      console.warn('[Frontend] 警告：响应因达到最大token限制而被截断');
+      console.warn(`[Frontend] [RequestId: ${requestId}] 警告：响应因达到最大token限制而被截断`);
     }
 
     // 5. 提取内容 (多层兼容提取)
@@ -227,10 +231,21 @@ export async function unifiedTranslate(message: any): Promise<string> {
                      apiResponse.output?.[0]?.content || 
                      apiResponse.content || "";
 
-    if (!rawContent) throw new Error("AI returned empty content");
+    if (!rawContent) {
+      // 提供详细的诊断信息
+      console.error(`[Frontend] [RequestId: ${requestId}] AI返回空内容，完整响应:`, {
+        requestId,
+        finishReason,
+        hasChoices: !!apiResponse.choices,
+        choicesLength: apiResponse.choices?.length,
+        firstChoice: apiResponse.choices?.[0],
+        fullResponse: apiResponse
+      });
+      throw new Error(`AI returned empty content (RequestId: ${requestId})`);
+    }
 
     // 记录原始内容类型和长度
-    console.log('[Frontend] 原始内容类型:', typeof rawContent, '长度:', 
+    console.log(`[Frontend] [RequestId: ${requestId}] 原始内容类型:`, typeof rawContent, '长度:', 
                 typeof rawContent === 'string' ? rawContent.length : JSON.stringify(rawContent).length);
 
     // 6. 处理双层JSON编码问题：有些API会将JSON结果再次序列化成字符串

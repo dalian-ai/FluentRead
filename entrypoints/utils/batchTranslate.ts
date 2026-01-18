@@ -221,7 +221,6 @@ export function batchTranslate(origin: string, context: string = document.title)
   return new Promise((resolve, reject) => {
     // 验证文本有效性
     if (!isValidText(origin)) {
-      console.warn('跳过无效文本:', origin);
       resolve(origin); // 返回原文
       return;
     }
@@ -462,8 +461,12 @@ export async function batchTranslateAllPageContent(
     return;
   }
   
-  // 准备节点数据并立即开始翻译
-  nodesToTranslate.forEach((node, index) => {
+  // 进度跟踪
+  let completedCount = 0;
+  const totalCount = nodesToTranslate.length;
+  
+  // 准备节点数据并收集所有翻译 Promise
+  const translationPromises = nodesToTranslate.map((node, index) => {
     const nodeId = `fr-node-${nodeIdCounter++}`;
     node.setAttribute(TRANSLATED_ID_ATTR, nodeId);
     node.setAttribute(TRANSLATED_ATTR, 'true');
@@ -472,39 +475,84 @@ export async function batchTranslateAllPageContent(
     originalContentsMap.set(nodeId, node.innerHTML);
     
     const text = node.textContent || '';
+    const tagName = node.tagName?.toLowerCase() || 'unknown';
     
-    // 立即翻译并更新（异步，不等待）
-    batchTranslate(text, document.title)
+    // 返回翻译 Promise
+    return batchTranslate(text, document.title)
       .then(translatedText => {
         if (!translatedText || translatedText === text) {
+          completedCount++;
+          console.log(`[FluentRead] 进度: ${completedCount}/${totalCount} (跳过: ${nodeId})`);
           return;
         }
         
-        if (isBilingual) {
-          // 双语显示
-          const originalHTML = node.innerHTML;
-          const bilingualDiv = document.createElement('div');
-          bilingualDiv.className = 'fluent-read-bilingual-content';
-          bilingualDiv.textContent = translatedText;
+        try {
+          if (isBilingual) {
+            // 双语显示
+            const originalHTML = node.innerHTML;
+            const bilingualDiv = document.createElement('div');
+            bilingualDiv.className = 'fluent-read-bilingual-content';
+            bilingualDiv.textContent = translatedText;
+            
+            node.innerHTML = '';
+            
+            const originalDiv = document.createElement('div');
+            originalDiv.className = 'fluent-read-original';
+            originalDiv.innerHTML = originalHTML;
+            
+            node.appendChild(originalDiv);
+            node.appendChild(bilingualDiv);
+            node.classList.add('fluent-read-bilingual');
+          } else {
+            // 单语显示
+            node.textContent = translatedText;
+          }
           
-          node.innerHTML = '';
-          
-          const originalDiv = document.createElement('div');
-          originalDiv.className = 'fluent-read-original';
-          originalDiv.innerHTML = originalHTML;
-          
-          node.appendChild(originalDiv);
-          node.appendChild(bilingualDiv);
-          node.classList.add('fluent-read-bilingual');
-        } else {
-          // 单语显示
-          node.textContent = translatedText;
+          completedCount++;
+          console.log(`[FluentRead] 进度: ${completedCount}/${totalCount} (已渲染: ${nodeId}, <${tagName}>)`);
+        } catch (renderError) {
+          console.error(`[FluentRead] 渲染翻译失败`, {
+            nodeId,
+            tagName,
+            textPreview: text.substring(0, 50),
+            error: renderError
+          });
+          // 渲染失败时移除翻译标记，以便下次可以重试
+          node.removeAttribute(TRANSLATED_ATTR);
+          completedCount++;
         }
       })
       .catch(error => {
-        console.warn(`节点 ${index} 翻译失败:`, error);
+        const errorMessage = error?.message || error;
+        const isEmptyContent = errorMessage?.includes('empty content');
+        
+        console.error(`[FluentRead] 翻译失败`, {
+          nodeId,
+          tagName,
+          index,
+          textLength: text.length,
+          textPreview: text.substring(0, 100),
+          error: errorMessage,
+          isEmptyContent
+        });
+        
+        // 对于空内容错误，可能是API暂时性问题，保留原文并允许重试
+        if (isEmptyContent) {
+          console.warn(`[FluentRead] 节点 ${nodeId} 因API返回空内容而跳过，保留原文`);
+          // 移除翻译标记，下次可以重试
+          node.removeAttribute(TRANSLATED_ATTR);
+        } else {
+          // 其他错误也移除标记以便重试
+          node.removeAttribute(TRANSLATED_ATTR);
+        }
+        
+        completedCount++;
       });
   });
+  
+  // 等待所有翻译完成
+  await Promise.all(translationPromises);
+  console.log(`[FluentRead] 全部完成: ${completedCount}/${totalCount}`);
 }
 
 /**
