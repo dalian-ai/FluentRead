@@ -39,14 +39,15 @@ export function parseSingleTranslation(result: string): string {
  */
 export function parseBatchTranslations(result: string, expectedCount: number, provider?: string): string[] {
   const providerInfo = provider ? `[Provider: ${provider}]` : '';
+  let requestId = 'unknown';
   
   // 确保result是字符串
   if (typeof result !== 'string') {
-    console.error('[JSON解析]', providerInfo, '翻译结果不是字符串:', typeof result, result);
+    console.error('[JSON解析]', '翻译结果不是字符串:', typeof result, result);
     try {
       result = String(result);
     } catch (e) {
-      console.error('[JSON解析]', providerInfo, '无法转换为字符串:', e);
+      console.error('[JSON解析]', '无法转换为字符串:', e);
       return new Array(expectedCount).fill('');
     }
   }
@@ -71,8 +72,8 @@ export function parseBatchTranslations(result: string, expectedCount: number, pr
     // 尝试查找JSON对象的起始位置（{或[）
     const jsonStartMatch = jsonStr.match(/[{\[]/);
     if (jsonStartMatch && jsonStartMatch.index! > 0) {
-      console.warn('[JSON解析]', providerInfo, '检测到JSON前有额外文本，自动跳过前', jsonStartMatch.index, '个字符');
-      console.warn('[JSON解析]', providerInfo, '被跳过的内容:', jsonStr.substring(0, jsonStartMatch.index));
+      console.warn('[JSON解析]', '检测到JSON前有额外文本，自动跳过前', jsonStartMatch.index, '个字符');
+      console.warn('[JSON解析]', '被跳过的内容:', jsonStr.substring(0, jsonStartMatch.index));
       jsonStr = jsonStr.substring(jsonStartMatch.index!);
     }
     
@@ -81,12 +82,17 @@ export function parseBatchTranslations(result: string, expectedCount: number, pr
     if (jsonEndMatch) {
       const endPos = jsonEndMatch.index! + jsonEndMatch[0].length;
       if (endPos < jsonStr.length) {
-        console.warn('[JSON解析]', providerInfo, 'JSON后有额外文本，自动截断');
+        console.warn('[JSON解析]', 'JSON后有额外文本，自动截断');
         jsonStr = jsonStr.substring(0, endPos);
       }
     }
     
     const parsed = JSON.parse(jsonStr);
+    
+    // 提取 requestId（如果存在）
+    if (parsed._metadata?.requestId) {
+      requestId = parsed._metadata.requestId;
+    }
     
     // 格式1：标准格式 {"translations":[{"index":1,"text":"译文1"}]}
     if (parsed.translations && Array.isArray(parsed.translations)) {
@@ -109,13 +115,13 @@ export function parseBatchTranslations(result: string, expectedCount: number, pr
         }
       });
       
-      console.log('[JSON解析]', providerInfo, '标准格式解析成功，解析到', parsed.translations.length, '个结果');
+      console.log('[JSON解析]', `[RequestId: ${requestId}]`, '标准格式解析成功，解析到', parsed.translations.length, '个结果');
       return results;
     }
     
     // 格式2：错误的单数形式 {"translation": [...]} 
     if (parsed.translation && Array.isArray(parsed.translation)) {
-      console.warn('[JSON解析]', providerInfo, '检测到错误的单数形式translation，尝试解析');
+      console.warn('[JSON解析]', '检测到错误的单数形式translation，尝试解析');
       const results: string[] = new Array(expectedCount).fill('');
       
       parsed.translation.forEach((item: any) => {
@@ -132,20 +138,20 @@ export function parseBatchTranslations(result: string, expectedCount: number, pr
         }
       });
       
-      console.log('[JSON解析]', providerInfo, '单数格式解析成功，解析到', parsed.translation.length, '个结果');
+      console.log('[JSON解析]', `[RequestId: ${requestId}]`, '单数格式解析成功，解析到', parsed.translation.length, '个结果');
       return results;
     }
     
     // 格式3：错误的字符串格式 {"translation": "所有翻译作为一个字符串"}
     if (parsed.translation && typeof parsed.translation === 'string') {
-      throw new Error(`[JSON解析] ${providerInfo} 返回了单字符串translation，不符合Structured Output Schema`);
+      throw new Error(`[JSON解析] [RequestId: ${requestId}] 返回了单字符串translation，不符合Structured Output Schema`);
     }
   } catch (e) {
     const error = e as Error;
-    console.error('[JSON解析]', providerInfo, 'JSON解析失败:', error.message);
-    console.error('[JSON解析] 原始内容:', result);
-    throw new Error(`[JSON解析] ${providerInfo} JSON解析失败: ${error.message}`);
+    console.error('[JSON解析]', `[RequestId: ${requestId}]`, 'JSON解析失败:', error.message);
+    console.error('[JSON解析]', `[RequestId: ${requestId}]`, '原始内容:', result);
+    throw new Error(`[JSON解析] [RequestId: ${requestId}] JSON解析失败: ${error.message}`);
   }
   
-  throw new Error(`[JSON解析] ${providerInfo} 未能从JSON中提取到有效的translations数组`);
+  throw new Error(`[JSON解析] [RequestId: ${requestId}] 未能从JSON中提取到有效的translations数组`);
 }

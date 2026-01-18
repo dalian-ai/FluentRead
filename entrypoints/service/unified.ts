@@ -218,6 +218,17 @@ export async function unifiedTranslate(message: any): Promise<string> {
 
     // 提取 requestId 用于日志追踪
     const requestId = apiResponse.$workers?.requestId || apiResponse.$metadata?.requestId || 'unknown';
+    
+    // 如果 requestId 是 unknown，记录完整响应结构以便调试
+    if (requestId === 'unknown') {
+      console.warn('[Frontend] 无法提取 requestId，响应结构:', {
+        hasWorkers: !!apiResponse.$workers,
+        hasMetadata: !!apiResponse.$metadata,
+        topLevelKeys: Object.keys(apiResponse).slice(0, 10),
+        sampleResponse: JSON.stringify(apiResponse).substring(0, 500)
+      });
+    }
+    
     console.log(`[Frontend] [RequestId: ${requestId}] 收到响应，开始处理`);
 
     // 4. 检查是否因token限制被截断
@@ -294,9 +305,9 @@ export async function unifiedTranslate(message: any): Promise<string> {
       finalResult = translationSchema.parse(cleanJson);
 
     } catch (e) {
-      console.warn("[Frontend] JSON 结构化解析失败，启动正则回退...", e);
-      console.log("[Frontend] 失败的内容类型:", typeof rawContent);
-      console.log("[Frontend] 失败的内容（前500字符）:", String(rawContent).substring(0, 500));
+      console.warn(`[Frontend] [RequestId: ${requestId}] JSON 结构化解析失败，启动正则回退...`, e);
+      console.log(`[Frontend] [RequestId: ${requestId}] 失败的内容类型:`, typeof rawContent);
+      console.log(`[Frontend] [RequestId: ${requestId}] 失败的内容（前500字符）:`, String(rawContent).substring(0, 500));
 
       /**
        * ✨ 增强版正则回退
@@ -325,15 +336,21 @@ export async function unifiedTranslate(message: any): Promise<string> {
             
             // 构造完整的JSON
             const repairedJson = `{"translations":[${arrayContent}]}`;
-            console.log('[Frontend] 尝试修复的JSON:', repairedJson.substring(0, 300));
+            console.log(`[Frontend] [RequestId: ${requestId}] 尝试修复的JSON:`, repairedJson.substring(0, 300));
             
             const parsed = JSON.parse(repairedJson);
             const validated = translationSchema.parse(parsed);
-            console.log('[Frontend] ✓ JSON修复成功，提取到', validated.translations.length, '条翻译');
-            return JSON.stringify(validated);
+            console.log(`[Frontend] [RequestId: ${requestId}] ✓ JSON修复成功，提取到`, validated.translations.length, '条翻译');
+            
+            // 添加 metadata 并返回
+            const resultWithMetadata = {
+              ...validated,
+              _metadata: { requestId }
+            };
+            return JSON.stringify(resultWithMetadata);
           }
         } catch (repairError) {
-          console.warn('[Frontend] JSON修复失败:', repairError);
+          console.warn(`[Frontend] [RequestId: ${requestId}] JSON修复失败:`, repairError);
         }
       }
       
@@ -352,16 +369,22 @@ export async function unifiedTranslate(message: any): Promise<string> {
       }
 
       if (translations.length > 0) {
-        console.log('[Frontend] ✓ 正则回退成功，提取到', translations.length, '条翻译');
-        finalResult = { translations };
+        console.log(`[Frontend] [RequestId: ${requestId}] ✓ 正则回退成功，提取到`, translations.length, '条翻译');
+        finalResult = { translations, _metadata: { requestId } };
       } else {
-        console.error('[Frontend] 完整的不可识别内容:', rawContent);
-        throw new Error(`Content unrecognizable: ${String(rawContent).substring(0, 200)}...`);
+        console.error(`[Frontend] [RequestId: ${requestId}] 完整的不可识别内容:`, rawContent);
+        throw new Error(`Content unrecognizable (RequestId: ${requestId}): ${String(rawContent).substring(0, 200)}...`);
       }
     }
 
-    // 8. 返回序列化后的标准结果
-    return JSON.stringify(finalResult);
+    // 8. 返回序列化后的标准结果（包含 requestId 用于追踪）
+    console.log(`[Frontend] [RequestId: ${requestId}] ✓ 翻译成功，返回 ${finalResult.translations.length} 条结果`);
+    // finalResult 可能已经包含 _metadata（从正则回退路径），需要确保存在
+    const resultWithMetadata = {
+      ...finalResult,
+      _metadata: { requestId }
+    };
+    return JSON.stringify(resultWithMetadata);
 
   } catch (error: any) {
     console.error('[Frontend] unifiedTranslate Error:', error);
