@@ -108,9 +108,11 @@ export const translationSchema = z.object({
     )
 });
 
+
+
 /**
- * 统一翻译函数 (前端实现)
- * 适配后端的 /v1/responses 接口
+ * 统一翻译函数
+ * 具备自动修复功能的结构化解析器
  */
 export async function unifiedTranslate(message: any): Promise<string> {
     try {
@@ -119,32 +121,25 @@ export async function unifiedTranslate(message: any): Promise<string> {
         const apiKey = config.token[service];
         const modelName = getModelName(service);
 
-        // 1. 数据预处理：将待翻译项整理为带 ID 的纯文本字符串
-        // 这样即使后端不升级，发送纯字符串也是最安全的兼容做法
+        // 1. 构造纯文本输入
         const originText = Array.isArray(message.origin)
             ? message.origin.map((item: any, i: number) => {
                 const content = typeof item === 'string' ? item : (item.text || item.input_text || "");
-                return `[ID:${i}] ${content}`;
+                return `[${i}] ${content}`;
             }).join('\n')
             : String(message.origin);
 
-        // 2. 构造符合后端 handleResponseAPI 期望的 Payload
+        // 2. 构造请求 Payload
         const payload = {
             model: modelName,
-            provider: service, // 对应后端 selectedProvider 的判断逻辑
-            // 直接传字符串，后端会走 if (typeof requestBody.input === 'string') 逻辑
-            input: originText, 
-            temperature: 0,
-            max_tokens: 4000,
-            // 对应后端 requestBody.text?.format 逻辑
+            provider: service,
+            input: originText,
+            temperature: 0, // 设为 0 强制模型保持严谨
             text: {
                 format: { type: "json_object" }
             }
         };
 
-        console.log(`[Frontend] 发起翻译请求: ${service} -> ${modelName}`);
-
-        // 3. 使用原生 fetch 发起请求
         const response = await fetch(`${baseURL.replace(/\/$/, '')}/responses`, {
             method: 'POST',
             headers: {
@@ -154,44 +149,60 @@ export async function unifiedTranslate(message: any): Promise<string> {
             body: JSON.stringify(payload)
         });
 
-        if (!response.ok) {
-            const errorDetail = await response.text();
-            throw new Error(`网络请求失败 (${response.status}): ${errorDetail}`);
-        }
-
         const apiResponse = await response.json();
-
-        // 4. 提取内容
-        // 兼容你后端可能返回的各种下游 API 响应格式 (OpenAI 或 Zhipu)
+        
+        // 3. 提取原始文本内容
         const rawContent = apiResponse.choices?.[0]?.message?.content || 
                            apiResponse.output?.[0]?.content || 
-                           apiResponse.content;
+                           apiResponse.content || "";
 
-        if (!rawContent) {
-            console.error('[Frontend] API 响应异常:', apiResponse);
-            throw new Error("AI 未返回翻译内容");
-        }
+        if (!rawContent) throw new Error("AI returned empty content");
 
-        // 5. 解析 JSON 字符串
-        let parsed;
+        let validatedData;
+
+        // 4. 尝试解析 (带容错逻辑)
         try {
-            // 有些 AI 会在结果里带 ```json 标签，先简单清理
-            const cleanJson = typeof rawContent === 'string' 
+            // 清理 Markdown 代码块
+            const cleanText = typeof rawContent === 'string' 
                 ? rawContent.replace(/```json\n?|\n?```/g, '').trim() 
                 : rawContent;
-            parsed = typeof cleanJson === 'string' ? JSON.parse(cleanJson) : cleanJson;
+            
+            const parsed = typeof cleanText === 'string' ? JSON.parse(cleanText) : cleanText;
+            validatedData = translationSchema.parse(parsed);
+
         } catch (e) {
-            throw new Error(`JSON 解析失败: ${rawContent}`);
+            console.warn("[unified] JSON 解析失败，尝试正则提取...", e);
+
+            // 5. 兜底方案：正则提取模式
+            // 匹配类似 "[1] 翻译内容" 的每一行
+            const lines = rawContent.split('\n');
+            const translations: { index: number; text: string }[] = [];
+            
+            for (const line of lines) {
+                // 正则匹配：以 [数字] 开头的行
+                const match = line.match(/^\[(\d+)\]\s*(.*)/);
+                if (match) {
+                    translations.push({
+                        index: parseInt(match[1], 10),
+                        text: match[2].trim()
+                    });
+                }
+            }
+
+            if (translations.length > 0) {
+                validatedData = { translations };
+                console.log(`[unified] 成功通过正则提取了 ${translations.length} 项翻译`);
+            } else {
+                // 如果正则也提取不到，说明模型彻底胡言乱语了
+                throw new Error(`AI 返回内容无法识别: ${rawContent.substring(0, 100)}...`);
+            }
         }
 
-        // 6. Schema 校验
-        const validated = translationSchema.parse(parsed);
-        
-        // 7. 返回序列化结果给调用方
-        return JSON.stringify(validated);
+        // 6. 返回经过校验的 JSON 字符串
+        return JSON.stringify(validatedData);
 
     } catch (error: any) {
-        console.error('[Frontend] unifiedTranslate 核心逻辑错误:', error);
+        console.error('[unified] 翻译逻辑崩溃:', error);
         throw error;
     }
 }
