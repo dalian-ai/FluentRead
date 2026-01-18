@@ -5,6 +5,7 @@
 
 import { enqueueTranslation, clearTranslationQueue, getQueueStatus } from './translateQueue';
 import { batchTranslate, clearBatchQueue, flushBatchQueue } from './batchTranslate';
+import { parseSingleTranslation } from './jsonParser';
 import browser from 'webextension-polyfill';
 import { config } from './config';
 import { cache } from './cache';

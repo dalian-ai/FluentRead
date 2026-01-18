@@ -7,6 +7,7 @@ import { generateText, Output } from 'ai';
 import { z } from 'zod';
 import { config } from '@/entrypoints/utils/config';
 import { urls } from '../utils/constant';
+import { parseApiResponse, extractContent } from '@/entrypoints/utils/responseParser';
 
 // 获取模型名称
 function getModelName(service: string): string {
@@ -175,7 +176,11 @@ export async function unifiedTranslate(message: any): Promise<string> {
 
 你的腔调：专业而不生硬，准确又有温度。像一个既懂技术也懂人文的人在写作，不是在翻译，而是在用中文重新讲述一个故事。
 
-**重要：翻译结果的 text 字段中不要包含序号标记 [1], [2] 等，只返回纯净的翻译文本。**
+**重要要求：**
+1. 翻译结果的 text 字段中不要包含序号标记 [1], [2] 等，只返回纯净的翻译文本
+2. **不要进行推理（reasoning）或展示思考过程**，这是一个直接的翻译任务
+3. **不要过度思考**，直接根据上述风格指南返回翻译结果即可
+4. 直接输出 JSON 格式的翻译结果，不要任何额外的解释、分析或思考过程
 
 请返回有效的 JSON 对象，结构为：{"translations": [{"index": number, "text": "翻译文本（不含序号）"}]}。不要包含任何解释或 markdown 代码块。`;
 
@@ -237,10 +242,8 @@ export async function unifiedTranslate(message: any): Promise<string> {
       console.warn(`[Frontend] [RequestId: ${requestId}] 警告：响应因达到最大token限制而被截断`);
     }
 
-    // 5. 提取内容 (多层兼容提取)
-    let rawContent = apiResponse.choices?.[0]?.message?.content || 
-                     apiResponse.output?.[0]?.content || 
-                     apiResponse.content || "";
+    // 5. 提取并解析内容
+    const rawContent = extractContent(apiResponse);
 
     if (!rawContent) {
       // 提供详细的诊断信息
@@ -255,149 +258,25 @@ export async function unifiedTranslate(message: any): Promise<string> {
       throw new Error(`AI returned empty content (RequestId: ${requestId})`);
     }
 
-    // 记录原始内容类型和长度
-    console.log(`[Frontend] [RequestId: ${requestId}] 原始内容类型:`, typeof rawContent, '长度:', 
-                typeof rawContent === 'string' ? rawContent.length : JSON.stringify(rawContent).length);
-
-    // 6. 处理双层JSON编码问题：有些API会将JSON结果再次序列化成字符串
-    // 检查content是否是一个JSON字符串（以 { 开头的字符串）
-    if (typeof rawContent === 'string' && rawContent.trim().startsWith('{')) {
-      try {
-        // 尝试解析一次，看是否是被序列化的JSON
-        const possiblyParsed = JSON.parse(rawContent);
-        // 如果解析成功且结果是对象，说明确实是双层编码
-        if (typeof possiblyParsed === 'object') {
-          rawContent = possiblyParsed;
-        }
-      } catch {
-        // 如果解析失败，说明不是双层编码，保持原样
-      }
-    }
-
-    // 7. 结构化解析 (增强防御力)
-    let finalResult;
-    try {
-      /**
-       * ✨ 增强版清洗逻辑
-       * 1. 如果rawContent已经是对象，直接使用
-       * 2. 移除 Markdown 代码块标记 (包括 json 声明和反引号)
-       * 3. 尝试寻找第一个 '{' 和最后一个 '}'，截取中间内容 (处理 AI 前后废话)
-       */
-      let cleanJson = typeof rawContent === 'object' ? rawContent : String(rawContent).trim();
-      
-      // 如果已经是对象，跳过字符串清理步骤
-      if (typeof cleanJson === 'string') {
-        // 处理 ```json ... ``` 结构
-        if (cleanJson.includes('```')) {
-          cleanJson = cleanJson.replace(/```(?:json)?/g, '').replace(/```/g, '').trim();
-        }
-
-        // 如果还是解析失败，尝试定位真正的 JSON 边界（防止 AI 输出 "Here is the result: { ... }"）
-        const startIndex = cleanJson.indexOf('{');
-        const endIndex = cleanJson.lastIndexOf('}');
-        if (startIndex !== -1 && endIndex !== -1) {
-            cleanJson = cleanJson.substring(startIndex, endIndex + 1);
-        }
-        
-        cleanJson = JSON.parse(cleanJson);
-      }
-      
-      finalResult = translationSchema.parse(cleanJson);
-
-    } catch (e) {
-      console.warn(`[Frontend] [RequestId: ${requestId}] JSON 结构化解析失败，启动正则回退...`, e);
-      console.log(`[Frontend] [RequestId: ${requestId}] 失败的内容类型:`, typeof rawContent);
-      console.log(`[Frontend] [RequestId: ${requestId}] 失败的内容（前500字符）:`, String(rawContent).substring(0, 500));
-
-      /**
-       * ✨ 增强版正则回退
-       * 考虑到 content 内部可能有换行符，匹配模式采用全局搜索
-       */
-      const translations: { index: number; text: string }[] = [];
-      const contentStr = typeof rawContent === 'object' ? JSON.stringify(rawContent) : String(rawContent);
-      
-      // 方案1: 尝试修复不完整的JSON（如果JSON被截断）
-      if (contentStr.includes('"translations"')) {
-        try {
-          // 提取 translations 数组部分
-          const translationsMatch = contentStr.match(/"translations"\s*:\s*\[([\s\S]*?)(?:\]|}|$)/);
-          if (translationsMatch) {
-            let arrayContent = translationsMatch[1];
-            
-            // 修复可能不完整的最后一个对象
-            // 如果最后没有闭合的 }，尝试补全
-            if (!arrayContent.trim().endsWith('}')) {
-              const lastComma = arrayContent.lastIndexOf(',');
-              if (lastComma > 0) {
-                // 截断到最后一个完整的对象
-                arrayContent = arrayContent.substring(0, lastComma);
-              }
-            }
-            
-            // 构造完整的JSON
-            const repairedJson = `{"translations":[${arrayContent}]}`;
-            console.log(`[Frontend] [RequestId: ${requestId}] 尝试修复的JSON:`, repairedJson.substring(0, 300));
-            
-            const parsed = JSON.parse(repairedJson);
-            const validated = translationSchema.parse(parsed);
-            console.log(`[Frontend] [RequestId: ${requestId}] ✓ JSON修复成功，提取到`, validated.translations.length, '条翻译');
-            
-            // 添加 metadata 并返回
-            const resultWithMetadata = {
-              ...validated,
-              _metadata: { requestId }
-            };
-            return JSON.stringify(resultWithMetadata);
-          }
-        } catch (repairError) {
-          console.warn(`[Frontend] [RequestId: ${requestId}] JSON修复失败:`, repairError);
-        }
-      }
-      
-      // 方案2: 正则提取
-      // 匹配 [数字] 内容，直到下一个 [数字] 或结尾
-      const lineRegex = /\[(\d+)\]\s*([\s\S]*?)(?=\s*\[\d+\]|$)/g;
-      let match;
-
-      while ((match = lineRegex.exec(contentStr)) !== null) {
-        if (match[1] && match[2]) {
-          translations.push({
-            index: parseInt(match[1], 10),
-            text: match[2].trim()
-          });
-        }
-      }
-
-      if (translations.length > 0) {
-        console.log(`[Frontend] [RequestId: ${requestId}] ✓ 正则回退成功，提取到`, translations.length, '条翻译');
-        finalResult = { translations, _metadata: { requestId } };
-      } else {
-        console.error(`[Frontend] [RequestId: ${requestId}] 完整的不可识别内容:`, rawContent);
-        throw new Error(`Content unrecognizable (RequestId: ${requestId}): ${String(rawContent).substring(0, 200)}...`);
-      }
-    }
-
-    // 8. 清理和返回结果
-    console.log(`[Frontend] [RequestId: ${requestId}] ✓ 翻译成功，返回 ${finalResult.translations.length} 条结果`);
+    console.log(`[Frontend] [RequestId: ${requestId}] 开始解析响应...`);
     
-    // 清理翻译结果：移除可能存在的 [index] 标记
-    const cleanedTranslations = finalResult.translations.map((item: any) => {
-      // 移除文本开头的 [数字] 标记（如 "[1] 文本" -> "文本"）
-      const cleanedText = item.text.replace(/^\[\d+\]\s*/, '');
-      return {
-        index: item.index,
-        text: cleanedText
-      };
-    });
+    // 6. 使用独立的响应解析器
+    const parseResult = parseApiResponse(rawContent, requestId);
     
+    if (!parseResult.success) {
+      console.error(`[Frontend] [RequestId: ${requestId}] 解析失败:`, parseResult.error);
+      console.error(`[Frontend] [RequestId: ${requestId}] 原始内容（前500字符）:`, String(rawContent).substring(0, 500));
+      throw new Error(`Failed to parse response (RequestId: ${requestId}): ${parseResult.error}`);
+    }
+    
+    console.log(`[Frontend] [RequestId: ${requestId}] ✓ 解析成功，返回 ${parseResult.data!.translations.length} 条结果`);
+    console.log(`[Frontend] [RequestId: ${requestId}] 解析方法: ${parseResult.debugInfo?.parseMethod}`);
+    
+    // 7. 返回结果（包含 metadata）
     const resultWithMetadata = {
-      translations: cleanedTranslations,
+      ...parseResult.data,
       _metadata: { requestId }
     };
-    
-    // 诊断日志：确认返回数据中包含 _metadata
-    console.log(`[Frontend] [RequestId: ${requestId}] 返回数据包含 _metadata:`, !!resultWithMetadata._metadata);
-    console.log(`[Frontend] [RequestId: ${requestId}] 返回数据预览:`, JSON.stringify(resultWithMetadata).substring(0, 200));
     
     return JSON.stringify(resultWithMetadata);
 
