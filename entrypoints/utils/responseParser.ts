@@ -250,6 +250,7 @@ export function parseApiResponse(rawContent: string | object, requestId: string 
       };
     } catch (directError) {
       console.log(`[ResponseParser] [RequestId: ${requestId}] 直接解析失败:`, directError);
+      console.log(`[ResponseParser] [RequestId: ${requestId}] 清理后的内容（前300字符）:`, debugInfo.cleanedContent || 'N/A');
     }
     
     // 2. 尝试修复截断的 JSON
@@ -268,7 +269,10 @@ export function parseApiResponse(rawContent: string | object, requestId: string 
         };
       } catch (repairError) {
         console.log(`[ResponseParser] [RequestId: ${requestId}] JSON 修复失败:`, repairError);
+        console.log(`[ResponseParser] [RequestId: ${requestId}] 修复后的 JSON（前300字符）:`, repaired.substring(0, 300));
       }
+    } else {
+      console.log(`[ResponseParser] [RequestId: ${requestId}] JSON 修复器返回 null - 未找到 translations 数组`);
     }
     
     // 3. 使用正则表达式提取（最后的回退）
@@ -283,11 +287,18 @@ export function parseApiResponse(rawContent: string | object, requestId: string 
       };
     }
     
-    // 所有方法都失败了
+    // 所有方法都失败了 - 提供详细诊断信息
+    console.error(`[ResponseParser] [RequestId: ${requestId}] ❌ 所有解析方法都失败了`);
+    console.error(`[ResponseParser] [RequestId: ${requestId}] 原始内容（前500字符）:`, contentStr.substring(0, 500));
+    console.error(`[ResponseParser] [RequestId: ${requestId}] 清理后内容（前500字符）:`, debugInfo.cleanedContent || 'N/A');
+    
     return {
       success: false,
       error: `无法解析内容 (RequestId: ${requestId})`,
-      debugInfo
+      debugInfo: {
+        ...debugInfo,
+        rawContentPreview: contentStr.substring(0, 500)
+      }
     };
     
   } catch (error: any) {

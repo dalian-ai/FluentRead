@@ -208,10 +208,11 @@ export async function unifiedTranslate(message: any): Promise<string> {
     const modelLower = modelName.toLowerCase();
     
     // /v1/responses 端点的标准 reasoning 控制参数
-    // 对于所有推理模型（Nemotron, o1, DeepSeek R1 等），使用统一的标准格式
+    // 对于所有推理模型（Nemotron, o1, DeepSeek R1, GLM-4 等），使用统一的标准格式
     if (modelLower.includes('nemotron') || 
         modelLower.includes('nvidia') || 
         modelLower.includes('o1') ||
+        modelLower.includes('glm') ||  // 智谱 GLM 系列
         (modelLower.includes('deepseek') && modelLower.includes('r1'))) {
       
       // 标准写法：reasoning.effort = "none" （最通用、最安全）
@@ -278,12 +279,16 @@ export async function unifiedTranslate(message: any): Promise<string> {
     }
 
     console.log(`[Frontend] [RequestId: ${requestId}] 开始解析响应...`);
+    console.log(`[Frontend] [RequestId: ${requestId}] rawContent 类型: ${typeof rawContent}`);
+    console.log(`[Frontend] [RequestId: ${requestId}] rawContent 长度: ${String(rawContent).length}`);
+    console.log(`[Frontend] [RequestId: ${requestId}] rawContent 前200字符:`, String(rawContent).substring(0, 200));
     
     // 6. 使用独立的响应解析器
     const parseResult = parseApiResponse(rawContent, requestId);
     
     if (!parseResult.success) {
       console.error(`[Frontend] [RequestId: ${requestId}] 解析失败:`, parseResult.error);
+      console.error(`[Frontend] [RequestId: ${requestId}] Debug 信息:`, parseResult.debugInfo);
       console.error(`[Frontend] [RequestId: ${requestId}] 原始内容（前500字符）:`, String(rawContent).substring(0, 500));
       throw new Error(`Failed to parse response (RequestId: ${requestId}): ${parseResult.error}`);
     }
