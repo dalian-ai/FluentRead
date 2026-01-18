@@ -462,8 +462,8 @@ export async function batchTranslateAllPageContent(
     return;
   }
   
-  // 准备节点数据
-  const nodeDataList = nodesToTranslate.map(node => {
+  // 准备节点数据并立即开始翻译
+  nodesToTranslate.forEach((node, index) => {
     const nodeId = `fr-node-${nodeIdCounter++}`;
     node.setAttribute(TRANSLATED_ID_ATTR, nodeId);
     node.setAttribute(TRANSLATED_ATTR, 'true');
@@ -471,49 +471,39 @@ export async function batchTranslateAllPageContent(
     // 保存原始内容
     originalContentsMap.set(nodeId, node.innerHTML);
     
-    return {
-      node,
-      nodeId,
-      text: node.textContent || ''
-    };
-  });
-  
-  // 提取要翻译的文本
-  const textsToTranslate = nodeDataList.map(data => data.text);
-  
-  // 批量翻译
-  const translatedTexts = await batchTranslateTexts(textsToTranslate, document.title);
-  
-  // 更新 DOM
-  nodeDataList.forEach((data, index) => {
-    const translatedText = translatedTexts[index];
-    if (!translatedText) {
-      console.warn(`[翻译] 节点 ${index} 翻译失败`);
-      return;
-    }
+    const text = node.textContent || '';
     
-    const { node } = data;
-    
-    if (isBilingual) {
-      // 双语显示
-      const originalHTML = node.innerHTML;
-      const bilingualDiv = document.createElement('div');
-      bilingualDiv.className = 'fluent-read-bilingual-content';
-      bilingualDiv.textContent = translatedText;
-      
-      node.innerHTML = '';
-      
-      const originalDiv = document.createElement('div');
-      originalDiv.className = 'fluent-read-original';
-      originalDiv.innerHTML = originalHTML;
-      
-      node.appendChild(originalDiv);
-      node.appendChild(bilingualDiv);
-      node.classList.add('fluent-read-bilingual');
-    } else {
-      // 单语显示
-      node.textContent = translatedText;
-    }
+    // 立即翻译并更新（异步，不等待）
+    batchTranslate(text, document.title)
+      .then(translatedText => {
+        if (!translatedText || translatedText === text) {
+          return;
+        }
+        
+        if (isBilingual) {
+          // 双语显示
+          const originalHTML = node.innerHTML;
+          const bilingualDiv = document.createElement('div');
+          bilingualDiv.className = 'fluent-read-bilingual-content';
+          bilingualDiv.textContent = translatedText;
+          
+          node.innerHTML = '';
+          
+          const originalDiv = document.createElement('div');
+          originalDiv.className = 'fluent-read-original';
+          originalDiv.innerHTML = originalHTML;
+          
+          node.appendChild(originalDiv);
+          node.appendChild(bilingualDiv);
+          node.classList.add('fluent-read-bilingual');
+        } else {
+          // 单语显示
+          node.textContent = translatedText;
+        }
+      })
+      .catch(error => {
+        console.warn(`节点 ${index} 翻译失败:`, error);
+      });
   });
 }
 
