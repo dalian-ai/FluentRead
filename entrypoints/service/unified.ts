@@ -110,6 +110,7 @@ export const translationSchema = z.object({
 
 /**
  * 统一翻译函数 (适配通用后端网关)
+ * 强化了对 Markdown 标签、截断 JSON 以及非标格式的兼容性
  */
 export async function unifiedTranslate(message: any): Promise<string> {
   try {
@@ -118,7 +119,7 @@ export async function unifiedTranslate(message: any): Promise<string> {
     const apiKey = config.token[service];
     const modelName = getModelName(service);
 
-    // 2. 预处理文本：添加索引标记
+    // 1. 预处理文本：添加索引标记
     const originText = Array.isArray(message.origin)
       ? message.origin.map((item: any, i: number) => {
           const content = typeof item === 'string' ? item : (item.text || "");
@@ -126,20 +127,20 @@ export async function unifiedTranslate(message: any): Promise<string> {
         }).join('\n')
       : String(message.origin);
 
-    // 3. 构造通用 Payload (发送消息数组给 General 后端)
+    // 2. 构造 Payload (保持 General 设计)
     const payload = {
       model: modelName,
       provider: service,
-      // ✨ 关键：在通用模式下，前端必须提供完整的 Context
       input: [
         {
           role: "system",
           content: "You are a professional translator. Respond ONLY with a valid JSON object. " +
-                   "Structure: {\"translations\": [{\"index\": number, \"text\": \"string\"}]}"
+                   "Structure: {\"translations\": [{\"index\": number, \"text\": \"string\"}]}. " +
+                   "Do not include any explanations or markdown blocks."
         },
         {
           role: "user",
-          content: `Translate the following text to Chinese, preserving the [index] markers and JSON structure:\n\n${originText}`
+          content: `Translate the following to Chinese, preserve [index] markers:\n\n${originText}`
         }
       ],
       temperature: 0,
@@ -148,7 +149,7 @@ export async function unifiedTranslate(message: any): Promise<string> {
       }
     };
 
-    // 4. 发起请求
+    // 3. 发起请求
     const response = await fetch(`${baseURL.replace(/\/$/, '')}/responses`, {
       method: 'POST',
       headers: {
@@ -165,34 +166,52 @@ export async function unifiedTranslate(message: any): Promise<string> {
 
     const apiResponse = await response.json();
 
-    // 5. 提取内容 (兼容 OpenAI/DeepSeek/Zhipu 等返回结构)
+    // 4. 提取内容 (多层兼容提取)
     const rawContent = apiResponse.choices?.[0]?.message?.content || 
                        apiResponse.output?.[0]?.content || 
                        apiResponse.content || "";
 
     if (!rawContent) throw new Error("AI returned empty content");
 
-    // 6. 结构化解析与正则防御
+    // 5. 结构化解析 (增强防御力)
     let finalResult;
     try {
-      // 清理 Markdown 代码块并解析 JSON
-      const cleanJson = typeof rawContent === 'string' 
-        ? rawContent.replace(/```json\n?|\n?```/g, '').trim() 
-        : rawContent;
+      /**
+       * ✨ 增强版清洗逻辑
+       * 1. 移除 Markdown 代码块标记 (包括 json 声明和反引号)
+       * 2. 尝试寻找第一个 '{' 和最后一个 '}'，截取中间内容 (处理 AI 前后废话)
+       */
+      let cleanJson = String(rawContent).trim();
       
-      const parsed = typeof cleanJson === 'string' ? JSON.parse(cleanJson) : cleanJson;
+      // 处理 ```json ... ``` 结构
+      if (cleanJson.includes('```')) {
+        cleanJson = cleanJson.replace(/```(?:json)?/g, '').replace(/```/g, '').trim();
+      }
+
+      // 如果还是解析失败，尝试定位真正的 JSON 边界（防止 AI 输出 "Here is the result: { ... }"）
+      const startIndex = cleanJson.indexOf('{');
+      const endIndex = cleanJson.lastIndexOf('}');
+      if (startIndex !== -1 && endIndex !== -1) {
+          cleanJson = cleanJson.substring(startIndex, endIndex + 1);
+      }
+      
+      const parsed = JSON.parse(cleanJson);
       finalResult = translationSchema.parse(parsed);
 
     } catch (e) {
-      console.warn("[Frontend] JSON Parse failed, falling back to Regex...", e);
+      console.warn("[Frontend] JSON 结构化解析失败，启动正则回退...", e);
 
-      // 正则回退解析逻辑：处理 AI 直接吐出 "[0] 翻译" 的情况
-      const lines = String(rawContent).split('\n');
+      /**
+       * ✨ 增强版正则回退
+       * 考虑到 content 内部可能有换行符，匹配模式采用全局搜索
+       */
       const translations: { index: number; text: string }[] = [];
-      
-      for (const line of lines) {
-        const match = line.match(/^\[(\d+)\]\s*(.*)/);
-        if (match) {
+      // 匹配 [数字] 内容，直到下一个 [数字] 或结尾
+      const lineRegex = /\[(\d+)\]\s*([\s\S]*?)(?=\s*\[\d+\]|$)/g;
+      let match;
+
+      while ((match = lineRegex.exec(String(rawContent))) !== null) {
+        if (match[1] && match[2]) {
           translations.push({
             index: parseInt(match[1], 10),
             text: match[2].trim()
@@ -207,7 +226,7 @@ export async function unifiedTranslate(message: any): Promise<string> {
       }
     }
 
-    // 7. 返回序列化后的标准结果
+    // 6. 返回序列化后的标准结果
     return JSON.stringify(finalResult);
 
   } catch (error: any) {
