@@ -64,7 +64,7 @@ function validateBatchTranslations(
   
   // 验证1：确保列表大小一致
   if (originalTexts.length !== translatedTexts.length) {
-    console.error('[批量翻译验证] 列表大小不一致！', {
+    console.error('[验证] 列表大小不一致！', {
       原文数量: originalTexts.length,
       译文数量: translatedTexts.length
     });
@@ -103,7 +103,7 @@ function validateBatchTranslations(
       reasons.push(
         `索引${i}: 译文过长 (${translatedTokens} tokens vs 原文 ${originalTokens} tokens, 比率 ${ratio.toFixed(2)})`
       );
-      console.warn(`[批量翻译验证] 索引${i}译文过长:`, {
+      console.warn(`[验证] 索引${i}译文过长:`, {
         原文: originalText.substring(0, 50),
         译文: translatedText.substring(0, 50),
         原文tokens: originalTokens,
@@ -115,7 +115,7 @@ function validateBatchTranslations(
       reasons.push(
         `索引${i}: 译文过短 (${translatedTokens} tokens vs 原文 ${originalTokens} tokens, 比率 ${ratio.toFixed(2)})`
       );
-      console.warn(`[批量翻译验证] 索引${i}译文过短:`, {
+      console.warn(`[验证] 索引${i}译文过短:`, {
         原文: originalText.substring(0, 50),
         译文: translatedText.substring(0, 50),
         原文tokens: originalTokens,
@@ -128,9 +128,9 @@ function validateBatchTranslations(
   const valid = invalidIndices.length === 0;
   
   if (valid) {
-    console.log('[批量翻译验证] ✓ 所有翻译通过验证');
+    console.log('[验证] ✓ 所有翻译通过验证');
   } else {
-    console.warn('[批量翻译验证] ✗ 发现异常翻译:', {
+    console.warn('[验证] ✗ 发现异常翻译:', {
       异常数量: invalidIndices.length,
       总数: originalTexts.length,
       异常索引: invalidIndices,
@@ -215,7 +215,7 @@ async function processBatch() {
   // 过滤无效任务（虽然在添加时已检查，但双重保险）
   const invalidTasks = allTasks.filter(task => !isValidText(task.origin));
   if (invalidTasks.length > 0) {
-    console.warn(`[批量翻译] 过滤掉 ${invalidTasks.length} 个无效任务`);
+    console.warn(`[翻译] 过滤掉 ${invalidTasks.length} 个无效任务`);
     invalidTasks.forEach(task => task.resolve(task.origin));
   }
   
@@ -230,7 +230,7 @@ async function processBatch() {
     // 分组处理 - 并行处理所有批次以提高速度（即使只有1个任务也使用批量翻译）
     const groups = groupTasks(tasks);
     
-    console.log(`[批量翻译] 分为${groups.length}个批次并行处理`);
+    console.log(`[翻译] 分为${groups.length}个批次并行处理`);
     
     // 并行处理所有批次
     await Promise.all(groups.map(async (group) => {
@@ -238,7 +238,7 @@ async function processBatch() {
         await translateBatch(group);
       } catch (error) {
         // 批量翻译失败，标记所有任务失败
-        console.error('[批量翻译] 批次翻译失败:', error);
+        console.error('[翻译] 批次翻译失败:', error);
         for (const task of group) {
           task.reject(error);
         }
@@ -282,7 +282,7 @@ async function translateBatch(tasks: BatchTask[]) {
   const origins = uniqueTasksList.map((task, index) => `[${index + 1}] ${task.origin}`).join('\n\n');
   
   // 调试日志：打印前3个发送的原文
-  console.log('[批量翻译-去重] 发送的前3个原文:');
+  console.log('[去重] 发送的前3个原文:');
   uniqueTasksList.slice(0, 3).forEach((task, idx) => {
     console.log(`  [${idx + 1}] ${task.origin.substring(0, 100)}...`);
   });
@@ -300,22 +300,22 @@ async function translateBatch(tasks: BatchTask[]) {
     // 检查是否是错误对象
     if (typeof result === 'object' && result !== null && 'error' in result) {
       const errorDetail = (result as any).error;
-      console.error('[批量翻译-去重] 收到错误对象:', errorDetail);
+      console.error('[去重] 收到错误对象:', errorDetail);
       throw new Error(errorDetail);
     }
-    console.error('[批量翻译-去重] API返回结果类型异常:', typeof result, result);
+    console.error('[去重] API返回结果类型异常:', typeof result, result);
     throw new Error(`API返回结果类型错误: ${typeof result}`);
   }
   
   // 调试日志：打印API返回的原始结果
-  console.log('[批量翻译-去重] API返回原始结果（前500字符）:', result.substring(0, 500));
-  console.log('[批量翻译-去重] API返回完整结果:', result);
+  console.log('[去重] API返回原始结果（前500字符）:', result.substring(0, 500));
+  console.log('[去重] API返回完整结果:', result);
   
   // 解析批量翻译结果
   const results = parseBatchTranslations(result, uniqueTasksList.length, config.service);
   
   // 调试日志：打印解析后的前3个结果
-  console.log('[批量翻译-去重] 解析后的前3个结果:');
+  console.log('[去重] 解析后的前3个结果:');
   results.slice(0, 3).forEach((text, idx) => {
     console.log(`  [DOM索引${idx}] 原文长度: ${uniqueTasksList[idx].origin.length}, 译文长度: ${text?.length || 0}`);
     console.log(`  [DOM索引${idx}] 原文前100字符: ${uniqueTasksList[idx].origin.substring(0, 100)}...`);
@@ -329,7 +329,7 @@ async function translateBatch(tasks: BatchTask[]) {
   const validation = validateBatchTranslations(originalTexts, results);
   
   if (!validation.valid) {
-    console.error('[批量翻译-去重] 翻译验证失败:', validation.reasons);
+    console.error('[去重] 翻译验证失败:', validation.reasons);
     // 对于验证失败的条目，使用原文
     for (const idx of validation.invalidIndices) {
       results[idx] = uniqueTasksList[idx].origin;
@@ -366,7 +366,7 @@ async function translateBatchNormal(tasks: BatchTask[]) {
   // 构建批量翻译的提示词（文本已在 translateApi 中清理过）
   const origins = tasks.map((task, index) => `[${index + 1}] ${task.origin}`).join('\n\n');
   
-  console.log('[批量翻译] 发送批量翻译请求，任务数:', tasks.length, 'Provider:', config.service);
+  console.log('翻译请求，任务数:', tasks.length, 'Provider:', config.service);
   
   // 发送批量翻译请求
   let result = await browser.runtime.sendMessage({
@@ -381,26 +381,26 @@ async function translateBatchNormal(tasks: BatchTask[]) {
     // 检查是否是错误对象
     if (typeof result === 'object' && result !== null && 'error' in result) {
       const errorDetail = (result as any).error;
-      console.error('[批量翻译-正常] 收到错误对象:', errorDetail, 'Provider:', config.service);
+      console.error('收到错误对象:', errorDetail, 'Provider:', config.service);
       throw new Error(errorDetail);
     }
-    console.error('[批量翻译-正常] API返回结果类型异常:', typeof result, result, 'Provider:', config.service);
+    console.error('API返回结果类型异常:', typeof result, result, 'Provider:', config.service);
     throw new Error(`API返回结果类型错误: ${typeof result}`);
   }
   
-  console.log('[批量翻译] 收到翻译结果，长度:', result.length, '预览:', result.substring(0, 200), 'Provider:', config.service);
+  console.log('收到翻译结果，长度:', result.length, '预览:', result.substring(0, 200), 'Provider:', config.service);
   
   // 解析批量翻译结果
   const results = parseBatchTranslations(result, tasks.length, config.service);
   
-  console.log('[批量翻译] 解析后结果数:', results.length);
+  console.log('解析后结果数:', results.length);
   
   // 验证翻译结果
   const originalTexts = tasks.map(task => task.origin);
   const validation = validateBatchTranslations(originalTexts, results);
   
   if (!validation.valid) {
-    console.error('[批量翻译-正常] 翻译验证失败:', validation.reasons);
+    console.error('验证失败:', validation.reasons);
     // 对于验证失败的条目，使用原文
     for (const idx of validation.invalidIndices) {
       results[idx] = tasks[idx].origin;
@@ -441,7 +441,7 @@ export function batchTranslate(origin: string, context: string = document.title)
   return new Promise((resolve, reject) => {
     // 验证文本有效性
     if (!isValidText(origin)) {
-      console.warn('[批量翻译] 跳过无效文本:', origin);
+      console.warn('跳过无效文本:', origin);
       resolve(origin); // 返回原文
       return;
     }
@@ -513,7 +513,7 @@ export function flushBatchQueue() {
  * @returns Promise<string[]> 翻译结果数组，与输入顺序对应
  */
 export async function batchTranslateTexts(texts: string[], context: string = document.title): Promise<string[]> {
-  console.log(`[直接批量翻译] 开始翻译 ${texts.length} 个文本`);
+  console.log(`开始翻译 ${texts.length} 个文本`);
   
   // 先验证和过滤文本
   const validationResults = texts.map(text => ({
@@ -558,7 +558,7 @@ export async function batchTranslateTexts(texts: string[], context: string = doc
     uncachedIndices.push(i);
   }
   
-  console.log(`[直接批量翻译] ${results.filter(r => r !== null).length} 个来自缓存, ${uncachedTasks.length} 个需要翻译`);
+  console.log(`[翻译] ${results.filter(r => r !== null).length} 个来自缓存, ${uncachedTasks.length} 个需要翻译`);
   
   if (uncachedTasks.length === 0) {
     return results as string[];
@@ -566,7 +566,7 @@ export async function batchTranslateTexts(texts: string[], context: string = doc
   
   // 按token限制分组
   const groups = groupTasks(uncachedTasks);
-  console.log(`[直接批量翻译] 分为 ${groups.length} 个批次，最大并发${MAX_CONCURRENT_BATCHES}`);
+  console.log(`[翻译] 分为 ${groups.length} 个批次，最大并发${MAX_CONCURRENT_BATCHES}`);
   
   // 存储每个任务的Promise
   const taskPromises: Promise<string>[] = uncachedTasks.map(() => 
@@ -592,13 +592,13 @@ export async function batchTranslateTexts(texts: string[], context: string = doc
       const group = groups[groupIndex];
       
       const promise = (async () => {
-        console.log(`[直接批量翻译] 开始批次 ${groupIndex + 1}/${groups.length}`);
+        console.log(`[翻译] 开始批次 ${groupIndex + 1}/${groups.length}`);
         try {
           await translateBatch(group);
-          console.log(`[直接批量翻译] 完成批次 ${groupIndex + 1}/${groups.length}`);
+          console.log(`[翻译] 完成批次 ${groupIndex + 1}/${groups.length}`);
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
-          console.error(`[直接批量翻译] 批次 ${groupIndex + 1} 翻译失败:`, errorMsg, error);
+          console.error(`[翻译] 批次 ${groupIndex + 1} 翻译失败:`, errorMsg, error);
           // 标记所有任务失败
           for (const task of group) {
             task.reject(error);
@@ -628,7 +628,7 @@ export async function batchTranslateTexts(texts: string[], context: string = doc
     results[originalIndex] = translatedResults[i];
   });
   
-  console.log(`[直接批量翻译] 完成，成功: ${results.filter(r => r !== null).length}/${texts.length}`);
+  console.log(`翻译完成，成功: ${results.filter(r => r !== null).length}/${texts.length}`);
   
   return results as string[];
 }
@@ -656,14 +656,14 @@ export async function batchTranslateAllPageContent(
   isBilingual: boolean,
   originalContentsMap: Map<string, string>
 ) {
-  console.log('[批量翻译] 开始翻译整个页面');
+  console.log('开始翻译整个页面');
   
   // 获取所有文本节点
   const allNodes = getAllTextNodes(rootElement);
-  console.log(`[批量翻译] 找到 ${allNodes.length} 个文本节点`);
+  console.log(`找到 ${allNodes.length} 个文本节点`);
   
   if (allNodes.length === 0) {
-    console.log('[批量翻译] 没有需要翻译的节点');
+    console.log('没有需要翻译的节点');
     return;
   }
   
@@ -682,10 +682,10 @@ export async function batchTranslateAllPageContent(
     return true;
   });
   
-  console.log(`[批量翻译] 过滤后需要翻译 ${nodesToTranslate.length} 个节点`);
+  console.log(`过滤后需要翻译 ${nodesToTranslate.length} 个节点`);
   
   if (nodesToTranslate.length === 0) {
-    console.log('[批量翻译] 所有内容已翻译');
+    console.log('所有内容已翻译');
     return;
   }
   
@@ -715,7 +715,7 @@ export async function batchTranslateAllPageContent(
   nodeDataList.forEach((data, index) => {
     const translatedText = translatedTexts[index];
     if (!translatedText) {
-      console.warn(`[批量翻译] 节点 ${index} 翻译失败`);
+      console.warn(`[翻译] 节点 ${index} 翻译失败`);
       return;
     }
     
@@ -743,7 +743,7 @@ export async function batchTranslateAllPageContent(
     }
   });
   
-  console.log('[批量翻译] 页面翻译完成并更新到 DOM');
+  console.log('[翻译] 页面翻译完成并更新到 DOM');
 }
 
 /**
@@ -751,7 +751,7 @@ export async function batchTranslateAllPageContent(
  * @param originalContentsMap 保存原始内容的 Map
  */
 export function restoreAllTranslations(originalContentsMap: Map<string, string>) {
-  console.log('[批量翻译] 开始恢复原文');
+  console.log('[翻译] 开始恢复原文');
   
   // 恢复所有已翻译的节点
   document.querySelectorAll(`[${TRANSLATED_ATTR}="true"]`).forEach(node => {
@@ -776,7 +776,7 @@ export function restoreAllTranslations(originalContentsMap: Map<string, string>)
   });
   
   nodeIdCounter = 0;
-  console.log('[批量翻译] 原文恢复完成');
+  console.log('[翻译] 原文恢复完成');
 }
 
 /**

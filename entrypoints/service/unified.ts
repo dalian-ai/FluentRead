@@ -217,36 +217,56 @@ export async function unifiedTranslate(message: any): Promise<string> {
     const apiResponse = await response.json();
 
     // 4. 提取内容 (多层兼容提取)
-    const rawContent = apiResponse.choices?.[0]?.message?.content || 
-                       apiResponse.output?.[0]?.content || 
-                       apiResponse.content || "";
+    let rawContent = apiResponse.choices?.[0]?.message?.content || 
+                     apiResponse.output?.[0]?.content || 
+                     apiResponse.content || "";
 
     if (!rawContent) throw new Error("AI returned empty content");
 
-    // 5. 结构化解析 (增强防御力)
+    // 5. 处理双层JSON编码问题：有些API会将JSON结果再次序列化成字符串
+    // 检查content是否是一个JSON字符串（以 { 开头的字符串）
+    if (typeof rawContent === 'string' && rawContent.trim().startsWith('{')) {
+      try {
+        // 尝试解析一次，看是否是被序列化的JSON
+        const possiblyParsed = JSON.parse(rawContent);
+        // 如果解析成功且结果是对象，说明确实是双层编码
+        if (typeof possiblyParsed === 'object') {
+          rawContent = possiblyParsed;
+        }
+      } catch {
+        // 如果解析失败，说明不是双层编码，保持原样
+      }
+    }
+
+    // 6. 结构化解析 (增强防御力)
     let finalResult;
     try {
       /**
        * ✨ 增强版清洗逻辑
-       * 1. 移除 Markdown 代码块标记 (包括 json 声明和反引号)
-       * 2. 尝试寻找第一个 '{' 和最后一个 '}'，截取中间内容 (处理 AI 前后废话)
+       * 1. 如果rawContent已经是对象，直接使用
+       * 2. 移除 Markdown 代码块标记 (包括 json 声明和反引号)
+       * 3. 尝试寻找第一个 '{' 和最后一个 '}'，截取中间内容 (处理 AI 前后废话)
        */
-      let cleanJson = String(rawContent).trim();
+      let cleanJson = typeof rawContent === 'object' ? rawContent : String(rawContent).trim();
       
-      // 处理 ```json ... ``` 结构
-      if (cleanJson.includes('```')) {
-        cleanJson = cleanJson.replace(/```(?:json)?/g, '').replace(/```/g, '').trim();
-      }
+      // 如果已经是对象，跳过字符串清理步骤
+      if (typeof cleanJson === 'string') {
+        // 处理 ```json ... ``` 结构
+        if (cleanJson.includes('```')) {
+          cleanJson = cleanJson.replace(/```(?:json)?/g, '').replace(/```/g, '').trim();
+        }
 
-      // 如果还是解析失败，尝试定位真正的 JSON 边界（防止 AI 输出 "Here is the result: { ... }"）
-      const startIndex = cleanJson.indexOf('{');
-      const endIndex = cleanJson.lastIndexOf('}');
-      if (startIndex !== -1 && endIndex !== -1) {
-          cleanJson = cleanJson.substring(startIndex, endIndex + 1);
+        // 如果还是解析失败，尝试定位真正的 JSON 边界（防止 AI 输出 "Here is the result: { ... }"）
+        const startIndex = cleanJson.indexOf('{');
+        const endIndex = cleanJson.lastIndexOf('}');
+        if (startIndex !== -1 && endIndex !== -1) {
+            cleanJson = cleanJson.substring(startIndex, endIndex + 1);
+        }
+        
+        cleanJson = JSON.parse(cleanJson);
       }
       
-      const parsed = JSON.parse(cleanJson);
-      finalResult = translationSchema.parse(parsed);
+      finalResult = translationSchema.parse(cleanJson);
 
     } catch (e) {
       console.warn("[Frontend] JSON 结构化解析失败，启动正则回退...", e);

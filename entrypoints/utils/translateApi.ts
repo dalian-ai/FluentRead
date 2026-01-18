@@ -42,7 +42,7 @@ export async function translateText(origin: string, context: string = document.t
     const cachedResult = cache.localGet(origin);
     if (cachedResult) {
       if (isDev) {
-        console.log('[翻译API] 命中缓存，直接返回缓存结果');
+        console.log('命中缓存，直接返回缓存结果');
       }
       return cachedResult;
     }
@@ -99,7 +99,7 @@ export async function translateText(origin: string, context: string = document.t
         // 处理错误，根据重试策略决定是否重试
         if (retryCount < maxRetries) {
           if (isDev) {
-            console.log(`[翻译API] 翻译失败，${retryCount + 1}/${maxRetries} 次重试，原因:`, error);
+            console.log(`翻译失败，${retryCount + 1}/${maxRetries} 次重试，原因:`, error);
           }
           
           // 等待一段时间后重试
@@ -122,7 +122,7 @@ export async function translateText(origin: string, context: string = document.t
  */
 export function cancelAllTranslations() {
   if (isDev) {
-    console.log('[翻译API] 取消所有等待中的翻译任务');
+    console.log('取消所有等待中的翻译任务');
   }
   clearTranslationQueue();
   clearBatchQueue();
