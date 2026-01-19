@@ -2,7 +2,7 @@
  * 测试修复函数单独调试
  */
 
-import { repairTruncatedJson } from './responseParser';
+import { repairTruncatedJson } from '../entrypoints/utils/responseParser';
 
 const truncatedJson = `{
   "translations": [

@@ -2,7 +2,7 @@
  * 测试 GLM-4-flashx 的 markdown 包装响应
  */
 
-import { parseFullApiResponse } from './responseParser';
+import { parseFullApiResponse } from '../entrypoints/utils/responseParser';
 
 // 实际的 GLM-4-flashx API 响应
 const glmResponse = {

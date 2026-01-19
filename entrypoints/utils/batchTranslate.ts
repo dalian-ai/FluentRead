@@ -8,6 +8,7 @@ import { config } from './config';
 import { cache } from './cache';
 import { parseBatchTranslations } from './jsonParser';
 import { isValidText } from './check';
+import { classifyNode } from './nodeFilter';
 
 // 批处理任务接口
 interface BatchTask {
@@ -420,6 +421,7 @@ export async function batchTranslateTexts(texts: string[], context: string = doc
 // 使用自定义属性标记已翻译的节点
 const TRANSLATED_ATTR = 'data-fr-translated';
 const TRANSLATED_ID_ATTR = 'data-fr-node-id';
+const SKIP_NODE_ATTR = 'data-fr-skip-node';  // 跳过的节点（不需要翻译的）
 
 let nodeIdCounter = 0;
 
@@ -473,15 +475,28 @@ export async function batchTranslateAllPageContent(
   
   // 准备节点数据并收集所有翻译 Promise
   const translationPromises = nodesToTranslate.map((node, index) => {
-    const nodeId = `fr-node-${nodeIdCounter++}`;
+    const text = node.textContent || '';
+    const tagName = node.tagName?.toLowerCase() || 'unknown';
+    
+    // 使用 nodeFilter 对节点进行分类
+    const classification = classifyNode(node, nodeIdCounter++);
+    
+    if (!classification.needsTranslation) {
+      // 不需要翻译的节点，标记为跳过
+      node.setAttribute(SKIP_NODE_ATTR, classification.nodeId);
+      node.setAttribute(TRANSLATED_ATTR, 'true');
+      completedCount++;
+      console.log(`[FluentRead] 跳过节点（无需翻译）: ${classification.nodeId}, <${tagName}>, text: "${text}"`);
+      return Promise.resolve(); // 返回空 Promise
+    }
+    
+    // 需要翻译的节点，分配正常的 node-id
+    const nodeId = classification.nodeId;
     node.setAttribute(TRANSLATED_ID_ATTR, nodeId);
     node.setAttribute(TRANSLATED_ATTR, 'true');
     
     // 保存原始内容
     originalContentsMap.set(nodeId, node.innerHTML);
-    
-    const text = node.textContent || '';
-    const tagName = node.tagName?.toLowerCase() || 'unknown';
     
     // 返回翻译 Promise
     return batchTranslate(text, document.title)

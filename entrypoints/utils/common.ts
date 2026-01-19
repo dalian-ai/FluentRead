@@ -25,12 +25,6 @@ export function detectlang(origin: string): string {
             return "en";
         case "jpn":
             return "ja";
-        case "kor":
-            return "ko";
-        case "fra":
-            return "fr";
-        case "rus":
-            return "ru";
         default:
             return find; // 返回其他语言的识别结果
     }

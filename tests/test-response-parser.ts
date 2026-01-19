@@ -10,7 +10,7 @@ import {
   extractContent,
   repairTruncatedJson,
   extractByRegex
-} from './responseParser';
+} from '../entrypoints/utils/responseParser';
 
 // 终端颜色输出
 const colors = {
@@ -101,17 +101,19 @@ const testCases: TestCase[] = [
   },
   
   {
-    name: "截断的 JSON（不完整）",
+    name: "截断的 JSON（轻微截断，自动修复）",
     input: '{"translations":[{"index":0,"text":"完整的"},{"index":1,"text":"不完',
-    expectedSuccess: false, // 严重截断的JSON无法恢复
-    description: "响应被严重截断，无法恢复"
+    expectedSuccess: true,
+    expectedCount: 1,
+    description: "响应被截断，但 repairTruncatedJson 会尝试恢复"
   },
   
   {
-    name: "轻微截断的 JSON（可恢复）",
+    name: "截断的 JSON（只缺少结尾括号，可修复）",
     input: '{"translations":[{"index":0,"text":"完整的"},{"index":1,"text":"也是完整的"}',
-    expectedSuccess: false, // 即使只缺少结尾，JSON.parse也会失败，且没有 [数字] 格式供正则提取
-    description: "只缺少结尾括号，但无法通过现有方法恢复"
+    expectedSuccess: true,
+    expectedCount: 2,
+    description: "只缺少结尾括号，repairTruncatedJson 可以自动补齐"
   },
   
   {
@@ -155,10 +157,11 @@ const testCases: TestCase[] = [
   },
   
   {
-    name: "多余的逗号",
+    name: "多余的逗号（自动修复）",
     input: '{"translations":[{"index":0,"text":"文本"},]}',
-    expectedSuccess: false, // 标准 JSON.parse 会失败
-    description: "JSON 包含尾随逗号"
+    expectedSuccess: true,
+    expectedCount: 1,
+    description: "JSON 包含尾随逗号，repairTruncatedJson 会自动修复"
   },
   
   {

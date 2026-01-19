@@ -2,7 +2,7 @@
  * 测试 Nemotron 模型返回的畸形响应
  */
 
-import { parseFullApiResponse } from './responseParser';
+import { parseFullApiResponse } from '../entrypoints/utils/responseParser';
 
 // 从用户提供的真实响应中提取
 const nemotronResponse = {
@@ -84,9 +84,9 @@ const nemotronResponse = {
     {
       "index": 16,
       "text": "你为团队打造的 AI 助手曾是一款改变游戏的利器，在笔记本上运行如臂extension。可当你尝试将其全公司部署时，一切便崩塌。"
-    },
-    {
-      "index": 1`,
+    }
+  ]
+}`,
         "refusal": null,
         "reasoning": "Very long reasoning text omitted for brevity..."
       }
