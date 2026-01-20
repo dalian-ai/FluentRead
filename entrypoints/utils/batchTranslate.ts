@@ -148,12 +148,26 @@ async function processBatch() {
     
     // 并行处理所有批次
     await Promise.all(groups.map(async (group) => {
-      try {
-        await translateBatch(group);
-      } catch (error) {
-        console.error('批次翻译失败:', error);
-        for (const task of group) {
-          task.reject(error);
+      let lastError: any = null;
+      
+      // 重试最多2次（首次 + 1次重试）
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          await translateBatch(group);
+          return; // 成功则返回
+        } catch (error) {
+          lastError = error;
+          console.error(`批次翻译失败 (尝试 ${attempt}/2):`, error);
+          
+          // 如果是最后一次尝试，拒绝所有任务
+          if (attempt === 2) {
+            for (const task of group) {
+              task.reject(error);
+            }
+          } else {
+            // 等待一会儿后重试
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
         }
       }
     }));
