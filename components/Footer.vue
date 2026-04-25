@@ -22,25 +22,6 @@
       </div>
     </div>
     
-    <!-- 赞赏码弹窗 -->
-    <div
-      title="赞赏作者"
-      width="300px"
-      align-center
-      :show-close="true"
-      :close-on-click-modal="true"
-      :close-on-press-escape="true"
-      class="donate-dialog"
-    >
-      <div class="donate-content">
-        <p class="donate-text">如果你觉得这个插件对您有帮助，<br>可以通过微信👇🏻赞赏作者一杯咖啡
-          <el-icon class="donate-icon"><Coffee /></el-icon> </p>
-        <div class="qrcode-container">
-          <img src="/misc/approve.jpg" alt="赞赏码" class="qrcode-image" />
-        </div>
-        <p class="donate-thanks">感谢你的支持！❤️</p>
-      </div>
-    </div>
   </div>
 </template>
 
